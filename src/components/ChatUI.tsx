@@ -35,6 +35,8 @@ import {
   fetchModelsWithRetry,
   getClusterOrEmpty,
 } from './chatUtils';
+import { MCPServerConfig, MCPModel } from '../config/mcp';
+import { fetchModelsFromAllMCPServers } from './chatUtils';
 
 interface Message {
   id: string;
@@ -457,6 +459,14 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     };
     initiateChatBackend();
   }, [open]);
+  useEffect(() => {
+    const [availableModels, setAvailableModels] = useState<MCPModel[]>([]);
+    const [selectedModel, setSelectedModel] = useState<MCPModel | null>(null);
+
+    useEffect(() => {
+      fetchModelsFromAllMCPServers().then(setAvailableModels);
+    }, []);
+  }, []);
 
   const renderChatContent = (
     messages: Message[],
@@ -895,3 +905,28 @@ const ChatWithFAB: React.FC = () => {
 
 export default ChatUI;
 export { ChatWithFAB };
+export async function fetchModelsFromAllMCPServers(): Promise<MCPModel[]> {
+  const servers = loadMCPServers();
+  const allModels: MCPModel[] = [];
+
+  for (const server of servers) {
+    try {
+      const res = await fetch(`${server.baseURL}/v1/models`);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const models = json.data || [];
+
+      for (const model of models) {
+        allModels.push({
+          ...model,
+          serverName: server.name,
+          baseURL: server.baseURL,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return allModels;
+}
