@@ -56,22 +56,85 @@ const MCPServerManager: React.FC = () => {
   };
 
   return (
-    <Box>
-      <Typography variant="h6">Register MCP Server</Typography>
-      <TextField label="Name" value={name} onChange={e => setName(e.target.value)} />
-      <TextField label="Base URL" value={baseURL} onChange={e => setBaseURL(e.target.value)} />
-      <Button variant="contained" onClick={handleAdd}>
-        Add
-      </Button>
-      {error && <Typography color="error">{error}</Typography>}
-      <List>
-        {servers.map((server, i) => (
-          <ListItem key={i}>
-            {server.name} — {server.baseURL}
-            <Button onClick={() => handleRemove(i)}>Remove</Button>
-          </ListItem>
-        ))}
-      </List>
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h5" sx={{ mb: 3, fontWeight: 600 }}>
+        Manage MCP Servers
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Add MCP (Model Context Protocol) servers to access additional AI models. Enter the server
+        details below and click Add to register a new server.
+      </Typography>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 3 }}>
+        <TextField
+          label="Server Name"
+          value={name}
+          onChange={e => setName(e.target.value)}
+          fullWidth
+          placeholder="e.g., My Local Server"
+        />
+        <TextField
+          label="Base URL"
+          value={baseURL}
+          onChange={e => setBaseURL(e.target.value)}
+          fullWidth
+          placeholder="e.g., http://localhost:8080"
+          helperText="The base URL of your MCP server (without /v1/models)"
+        />
+        <Button
+          variant="contained"
+          onClick={handleAdd}
+          sx={{ alignSelf: 'flex-start' }}
+          disabled={!name.trim() || !baseURL.trim()}
+        >
+          Add Server
+        </Button>
+      </Box>
+      {error && (
+        <Typography color="error" sx={{ mb: 3, p: 2, bgcolor: 'error.50', borderRadius: 1 }}>
+          {error}
+        </Typography>
+      )}
+
+      {servers.length > 0 && (
+        <>
+          <Typography variant="h6" sx={{ mb: 2 }}>
+            Registered Servers
+          </Typography>
+          <List>
+            {servers.map((server, i) => (
+              <ListItem
+                key={`server-${i}`}
+                sx={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  borderRadius: 1,
+                  mb: 1,
+                  bgcolor: 'background.default',
+                }}
+              >
+                <Box>
+                  <Typography variant="subtitle1" fontWeight={600}>
+                    {server.name}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {server.baseURL}
+                  </Typography>
+                </Box>
+                <Button
+                  onClick={() => handleRemove(i)}
+                  size="small"
+                  color="error"
+                  variant="outlined"
+                >
+                  Remove
+                </Button>
+              </ListItem>
+            ))}
+          </List>
+        </>
+      )}
     </Box>
   );
 };

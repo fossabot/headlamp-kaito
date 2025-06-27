@@ -4,6 +4,7 @@ import {
   stopOrDeletePortForward,
 } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import { getCluster } from '@kinvolk/headlamp-plugin/lib/Utils';
+import { MCPModel, loadMCPServers } from '../config/mcp';
 
 export async function resolvePodAndPort(namespace: string, workspaceName: string) {
   const labelSelector = `kaito.sh/workspace=${workspaceName}`;
@@ -88,4 +89,30 @@ export async function fetchModelsWithRetry(localPort: string, retries = 3, delay
     }
   }
   return [];
+}
+
+export async function fetchModelsFromAllMCPServers(): Promise<MCPModel[]> {
+  const servers = loadMCPServers();
+  const allModels: MCPModel[] = [];
+
+  for (const server of servers) {
+    try {
+      const res = await fetch(`${server.baseURL}/v1/models`);
+      if (!res.ok) continue;
+      const json = await res.json();
+      const models = json.data || [];
+
+      for (const model of models) {
+        allModels.push({
+          ...model,
+          serverName: server.name,
+          baseURL: server.baseURL,
+        });
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return allModels;
 }

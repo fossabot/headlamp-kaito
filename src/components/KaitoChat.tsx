@@ -3,13 +3,16 @@ import { Box, Typography, Autocomplete, TextField, Stack, Button } from '@mui/ma
 import { useLocation } from 'react-router-dom';
 import { useTheme } from '@mui/material/styles';
 import ChatUI from './ChatUI';
+import MCPServerManager from './MCPServerManager';
 import {
   resolvePodAndPort,
   startWorkspacePortForward,
   stopWorkspacePortForward,
   fetchModelsWithRetry,
+  fetchModelsFromAllMCPServers,
 } from './chatUtils';
 import { request } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
+import { MCPModel } from '../config/mcp';
 
 interface ModelOption {
   title: string;
@@ -36,6 +39,9 @@ const KaitoChat: React.FC = () => {
     namespace: string;
   } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [mcpModels, setMcpModels] = useState<MCPModel[]>([]);
+  const [selectedMCPModel, setSelectedMCPModel] = useState<MCPModel | null>(null);
+  const [showMCPManager, setShowMCPManager] = useState(false);
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -53,6 +59,19 @@ const KaitoChat: React.FC = () => {
 
     fetchWorkspaces();
   }, []);
+
+  // load mcp models
+  useEffect(() => {
+    const loadMCPModels = async () => {
+      try {
+        const models = await fetchModelsFromAllMCPServers();
+        setMcpModels(models);
+      } catch (error) {
+        console.error('Failed to load MCP models:', error);
+      }
+    };
+    loadMCPModels();
+  }, [showMCPManager]);
   const workspaceName = selectedWorkspace?.label;
   const namespace = selectedWorkspace?.namespace || 'default';
 
@@ -150,15 +169,26 @@ const KaitoChat: React.FC = () => {
             renderInput={params => <TextField {...params} label="Model" />}
           />
         )}
-        {selectedWorkspace && selectedModel && (
+        <Autocomplete
+          options={mcpModels}
+          getOptionLabel={opt => `${opt.id} (${opt.serverName})`}
+          value={selectedMCPModel}
+          onChange={(_, val) => setSelectedMCPModel(val)}
+          sx={{ width: 300 }}
+          renderInput={params => <TextField {...params} label="MCP Model" />}
+        />
+        <Button variant="outlined" onClick={() => setShowMCPManager(true)}>
+          Manage MCP Servers
+        </Button>
+        {(selectedWorkspace && selectedModel) || selectedMCPModel ? (
           <Button variant="contained" color="primary" onClick={() => setDialogOpen(true)}>
             Go
           </Button>
-        )}
+        ) : null}
       </Stack>
 
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {dialogOpen && selectedWorkspace && (
+        {dialogOpen && ((selectedWorkspace && selectedModel) || selectedMCPModel) && (
           <Box
             sx={{
               flex: 1,
@@ -170,12 +200,13 @@ const KaitoChat: React.FC = () => {
           >
             <ChatUI
               embedded
-              namespace={selectedWorkspace.namespace}
-              workspaceName={selectedWorkspace.label}
+              namespace={selectedWorkspace?.namespace || 'default'}
+              workspaceName={selectedWorkspace?.label}
               onClose={() => {
                 setDialogOpen(false);
                 setSelectedWorkspace(null);
                 setSelectedModel(null);
+                setSelectedMCPModel(null);
                 setLocalPort(null);
                 setPortForwardId(null);
               }}
@@ -184,6 +215,43 @@ const KaitoChat: React.FC = () => {
           </Box>
         )}
       </Box>
+
+      {/* MCP Server Manager Dialog */}
+      {showMCPManager && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            bgcolor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1300,
+          }}
+          onClick={() => setShowMCPManager(false)}
+        >
+          <Box
+            sx={{
+              bgcolor: 'background.paper',
+              borderRadius: 2,
+              p: 0,
+              maxWidth: 600,
+              width: '90%',
+              maxHeight: '80%',
+              overflow: 'auto',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <MCPServerManager />
+            <Box sx={{ p: 2, borderTop: '1px solid rgba(0,0,0,0.1)', textAlign: 'right' }}>
+              <Button onClick={() => setShowMCPManager(false)}>Close</Button>
+            </Box>
+          </Box>
+        </Box>
+      )}
     </Box>
   );
 };

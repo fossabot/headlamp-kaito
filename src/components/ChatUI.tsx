@@ -37,6 +37,7 @@ import {
 } from './chatUtils';
 import { MCPServerConfig, MCPModel } from '../config/mcp';
 import { fetchModelsFromAllMCPServers } from './chatUtils';
+import MCPServerManager from './MCPServerManager';
 
 interface Message {
   id: string;
@@ -200,6 +201,9 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   const [selectedModel, setSelectedModel] = useState<{ title: string; value: string } | null>(null);
   const [isPortReady, setIsPortReady] = useState(false);
   const [baseURL, setBaseURL] = useState('http://localhost:8080/v1');
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+  const [availableMCPModels, setAvailableMCPModels] = useState<MCPModel[]>([]);
+  const [selectedMCPModel, setSelectedMCPModel] = useState<MCPModel | null>(null);
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
@@ -459,14 +463,25 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     };
     initiateChatBackend();
   }, [open]);
+  // load mcp models
   useEffect(() => {
-    const [availableModels, setAvailableModels] = useState<MCPModel[]>([]);
-    const [selectedModel, setSelectedModel] = useState<MCPModel | null>(null);
+    const loadMCPModels = async () => {
+      try {
+        const mcpModels = await fetchModelsFromAllMCPServers();
+        setAvailableMCPModels(mcpModels);
+      } catch (error) {
+        console.error('Failed to load MCP models:', error);
+      }
+    };
+    loadMCPModels();
+  }, [mcpDialogOpen]);
 
-    useEffect(() => {
-      fetchModelsFromAllMCPServers().then(setAvailableModels);
-    }, []);
-  }, []);
+  const handleMCPModelSelect = (mcpModel: MCPModel) => {
+    setSelectedMCPModel(mcpModel);
+    setSelectedModel({ title: mcpModel.id, value: mcpModel.id });
+    setBaseURL(mcpModel.baseURL);
+    setIsPortReady(true);
+  };
 
   const renderChatContent = (
     messages: Message[],
@@ -638,42 +653,52 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
               }}
             />
           </Box>
-          <Tooltip title="Select a model">
-            <Autocomplete
-              options={models}
-              getOptionLabel={opt => opt.title}
-              value={selectedModel ?? null}
-              onChange={(e, val) => {
-                if (val) {
-                  setSelectedModel(val);
-                }
-              }}
-              sx={{
-                width: '150px',
-                '& .MuiInputBase-root': {
-                  height: '32px',
-                  color: theme.palette.primary.main,
-                  backgroundColor: theme.palette.background.default,
-                },
-                '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: theme.palette.divider,
-                },
-              }}
-              renderInput={params => (
-                <TextField
-                  {...params}
-                  label="Model"
-                  variant="outlined"
-                  sx={{
-                    '& .MuiInputLabel-root': {
-                      fontSize: '12px',
-                      color: theme.palette.primary.main,
-                    },
-                  }}
-                />
-              )}
-            />
-          </Tooltip>
+          <Stack direction="row" spacing={1} alignItems="center">
+            <Tooltip title="Select a model">
+              <Autocomplete
+                options={models}
+                getOptionLabel={opt => opt.title}
+                value={selectedModel ?? null}
+                onChange={(e, val) => {
+                  if (val) {
+                    setSelectedModel(val);
+                  }
+                }}
+                sx={{
+                  width: '150px',
+                  '& .MuiInputBase-root': {
+                    height: '32px',
+                    color: theme.palette.primary.main,
+                    backgroundColor: theme.palette.background.default,
+                  },
+                  '& .MuiOutlinedInput-notchedOutline': {
+                    borderColor: theme.palette.divider,
+                  },
+                }}
+                renderInput={params => (
+                  <TextField
+                    {...params}
+                    label="Model"
+                    variant="outlined"
+                    sx={{
+                      '& .MuiInputLabel-root': {
+                        fontSize: '12px',
+                        color: theme.palette.primary.main,
+                      },
+                    }}
+                  />
+                )}
+              />
+            </Tooltip>
+            {selectedMCPModel && (
+              <Chip
+                label={`MCP: ${selectedMCPModel.serverName}`}
+                size="small"
+                color="primary"
+                sx={{ fontSize: '10px' }}
+              />
+            )}
+          </Stack>
         </Stack>
       </InputContainer>
     </>
@@ -775,7 +800,10 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             </Avatar>
             <Box>
               <Typography variant="h6" fontWeight="600" color={theme.palette.text.primary}>
-                Chat with {selectedModel?.title ?? 'Model'}
+                Chat with{' '}
+                {selectedMCPModel
+                  ? `${selectedMCPModel.id} (${selectedMCPModel.serverName})`
+                  : selectedModel?.title ?? 'Model'}
               </Typography>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <Box
@@ -795,6 +823,11 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             </Box>
           </Stack>{' '}
           <Stack direction="row" spacing={1}>
+            <Tooltip title="Manage MCP Servers">
+              <IconButton onClick={() => setMcpDialogOpen(true)} size="small">
+                ⚙️
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Clear conversation">
               <IconButton onClick={clearChat} size="small">
                 🗑️
@@ -854,6 +887,63 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           setSelectedModel
         )}
       </DialogContent>
+
+      {/* MCP Server Management Dialog */}
+      <Dialog
+        open={mcpDialogOpen}
+        onClose={() => setMcpDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{
+          sx: { borderRadius: '16px' },
+        }}
+      >
+        <DialogContent sx={{ p: 0 }}>
+          <MCPServerManager />
+          <Box sx={{ p: 2, borderTop: '1px solid rgba(0,0,0,0.1)' }}>
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Available MCP Models
+            </Typography>
+            {availableMCPModels.length > 0 ? (
+              <Stack spacing={1}>
+                {availableMCPModels.map((mcpModel, index) => (
+                  <Box
+                    key={`${mcpModel.serverName}-${mcpModel.id}-${index}`}
+                    sx={{
+                      p: 2,
+                      border: '1px solid rgba(0,0,0,0.1)',
+                      borderRadius: '8px',
+                      cursor: 'pointer',
+                      bgcolor:
+                        selectedMCPModel?.id === mcpModel.id
+                          ? 'rgba(59, 130, 246, 0.1)'
+                          : 'transparent',
+                      '&:hover': {
+                        bgcolor: 'rgba(59, 130, 246, 0.05)',
+                      },
+                    }}
+                    onClick={() => {
+                      handleMCPModelSelect(mcpModel);
+                      setMcpDialogOpen(false);
+                    }}
+                  >
+                    <Typography variant="subtitle1" fontWeight={600}>
+                      {mcpModel.id}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Server: {mcpModel.serverName} | URL: {mcpModel.baseURL}
+                    </Typography>
+                  </Box>
+                ))}
+              </Stack>
+            ) : (
+              <Typography color="text.secondary">
+                No MCP models available. Add MCP servers above to see available models.
+              </Typography>
+            )}
+          </Box>
+        </DialogContent>
+      </Dialog>
     </ChatDialog>
   );
 };
@@ -905,28 +995,3 @@ const ChatWithFAB: React.FC = () => {
 
 export default ChatUI;
 export { ChatWithFAB };
-export async function fetchModelsFromAllMCPServers(): Promise<MCPModel[]> {
-  const servers = loadMCPServers();
-  const allModels: MCPModel[] = [];
-
-  for (const server of servers) {
-    try {
-      const res = await fetch(`${server.baseURL}/v1/models`);
-      if (!res.ok) continue;
-      const json = await res.json();
-      const models = json.data || [];
-
-      for (const model of models) {
-        allModels.push({
-          ...model,
-          serverName: server.name,
-          baseURL: server.baseURL,
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return allModels;
-}
