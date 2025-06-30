@@ -33,9 +33,7 @@ export function getClusterOrEmpty() {
     if (clusterValue !== null && clusterValue !== undefined) {
       return clusterValue;
     }
-  } catch {
-    // ignore
-  }
+  } catch {}
   return '';
 }
 
@@ -94,6 +92,10 @@ export async function fetchModelsWithRetry(localPort: string, retries = 3, delay
 export async function fetchModelsFromAllMCPServers(): Promise<MCPModel[]> {
   const servers = loadMCPServers();
   const allModels: MCPModel[] = [];
+
+  if (servers.length === 0) {
+    return allModels;
+  }
 
   for (const server of servers) {
     try {

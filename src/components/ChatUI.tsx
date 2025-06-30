@@ -463,14 +463,17 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     };
     initiateChatBackend();
   }, [open]);
-  // load mcp models
+
   useEffect(() => {
+    if (!mcpDialogOpen) return;
+
     const loadMCPModels = async () => {
       try {
         const mcpModels = await fetchModelsFromAllMCPServers();
         setAvailableMCPModels(mcpModels);
       } catch (error) {
         console.error('Failed to load MCP models:', error);
+        setAvailableMCPModels([]);
       }
     };
     loadMCPModels();
@@ -621,7 +624,33 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           justifyContent="space-between"
           alignItems="center"
         >
-          <Box display="flex" flexWrap="wrap" gap={1} color={theme.palette.primary.main}>
+          <Box
+            display="flex"
+            flexWrap="wrap"
+            gap={1}
+            alignItems="center"
+            color={theme.palette.primary.main}
+          >
+            <Tooltip title="MCP Server Settings">
+              <IconButton
+                onClick={() => setMcpDialogOpen(true)}
+                size="small"
+                sx={{
+                  color: theme.palette.primary.main,
+                  border: `1px solid ${theme.palette.divider}`,
+                  borderRadius: '16px',
+                  width: '32px',
+                  height: '24px',
+                  fontSize: '12px',
+                  '&:hover': {
+                    backgroundColor: theme.palette.action.hover,
+                    borderColor: theme.palette.primary.main,
+                  },
+                }}
+              >
+                🔗
+              </IconButton>
+            </Tooltip>
             <Chip
               label="What can you do?"
               size="small"
