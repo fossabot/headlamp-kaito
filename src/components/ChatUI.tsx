@@ -15,11 +15,16 @@ import {
   TextField,
   Autocomplete,
   Button,
+  DialogTitle,
+  DialogActions,
+  Slider,
 } from '@mui/material';
 import { styled } from '@mui/system';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { streamText } from 'ai';
-import { OPENAI_CONFIG } from '../config/openai';
+import { DEFAULT_OPENAI_CONFIG } from '../config/openai';
+import ModelSettingsDialog, { ModelConfig } from './ModelSettingsDialog';
+
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -181,6 +186,9 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   theme: themeProp,
 }) => {
   const theme = themeProp || useTheme();
+  const [config, setConfig] = useState<ModelConfig>(DEFAULT_OPENAI_CONFIG);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const { temperature = 0.7, maxTokens = 1000 } = config || {};
   const [messages, setMessages] = useState<Message[]>([
     {
       id: 'welcome',
@@ -259,6 +267,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
       timestamp: new Date(),
       isLoading: true,
     };
+
     setMessages(prev => [...prev, aiMessage]);
     try {
       const conversationHistory = messages.concat(userMessage).map(msg => ({
@@ -266,8 +275,6 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
         content: msg.content,
       }));
       const modelId = selectedModel?.value;
-      console.log('Selected model:', selectedModel?.value);
-
       if (!modelId) {
         throw new Error('No model selected.');
       }
@@ -280,8 +287,8 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
       const { textStream } = await streamText({
         model: openAICompatibleProvider.chatModel(modelId),
         messages: conversationHistory,
-        temperature: OPENAI_CONFIG.temperature,
-        maxTokens: OPENAI_CONFIG.maxTokens,
+        temperature,
+        maxTokens,
       });
 
       let streamedText = '';
@@ -728,48 +735,77 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             pb: 0,
           }}
         >
-          <IconButton
-            onClick={() => {
-              stopAIPortForward();
-              onClose?.();
-            }}
-            size="small"
-            sx={{
-              color: theme.palette.error.main,
-              fontSize: '18px',
-              width: 32,
-              height: 32,
-              '&:hover': {
-                backgroundColor: theme.palette.action.hover,
-                color: theme.palette.error.dark,
-                transform: 'scale(1.1)',
-              },
-              transition: 'all 0.2s ease',
-            }}
-            aria-label="Close chat"
-          >
-            ✕
-          </IconButton>
+          <Stack direction="row" spacing={1}>
+            <Tooltip title="Model Settings">
+              <IconButton
+                onClick={() => setSettingsOpen(true)}
+                size="small"
+                sx={{
+                  color: theme.palette.primary.main,
+                  fontSize: '18px',
+                  width: 32,
+                  height: 32,
+                  '&:hover': {
+                    backgroundColor: theme.palette.action.hover,
+                    color: theme.palette.primary.dark,
+                    transform: 'scale(1.1)',
+                  },
+                  transition: 'all 0.2s ease',
+                }}
+                aria-label="Model Settings"
+              >
+                ⚙
+              </IconButton>
+            </Tooltip>
+            <IconButton
+              onClick={() => {
+                stopAIPortForward();
+                onClose?.();
+              }}
+              size="small"
+              sx={{
+                color: theme.palette.error.main,
+                fontSize: '18px',
+                width: 32,
+                height: 32,
+                '&:hover': {
+                  backgroundColor: theme.palette.action.hover,
+                  color: theme.palette.error.dark,
+                  transform: 'scale(1.1)',
+                },
+                transition: 'all 0.2s ease',
+              }}
+              aria-label="Close chat"
+            >
+              ✕
+            </IconButton>
+          </Stack>
         </Box>
-        <Box sx={{ flex: 1, overflowY: 'auto' }}>
-          {renderChatContent(
-            messages,
-            messagesEndRef,
-            inputRef,
-            input,
-            handleInputChange,
-            handleKeyDown,
-            handleSend,
-            handleChipClick,
-            clearChat,
-            theme,
-            isLoading,
-            isPortReady,
-            models,
-            selectedModel,
-            setSelectedModel
-          )}
-        </Box>
+
+        {renderChatContent(
+          messages,
+          messagesEndRef,
+          inputRef,
+          input,
+          handleInputChange,
+          handleKeyDown,
+          handleSend,
+          handleChipClick,
+          clearChat,
+          theme,
+          isLoading,
+          isPortReady,
+          models,
+          selectedModel,
+          setSelectedModel
+        )}
+
+        <ModelSettingsDialog
+          open={settingsOpen}
+          onClose={() => setSettingsOpen(false)}
+          config={config}
+          onSave={setConfig}
+        />
       </Box>
     );
   }
@@ -976,19 +1012,10 @@ const ChatFAB: React.FC<{ onClick: () => void }> = ({ onClick }) => {
 
 const ChatWithFAB: React.FC = () => {
   const [open, setOpen] = useState(false);
-  const [portForwardAttempted, setPortForwardAttempted] = useState(false);
-
   return (
     <>
       <ChatFAB onClick={() => setOpen(true)} />
-      <ChatUI
-        open={open}
-        onClose={() => {
-          setOpen(false);
-          setPortForwardAttempted(true);
-        }}
-        namespace="default"
-      />
+      <ChatUI open={open} onClose={() => setOpen(false)} namespace="default" />
     </>
   );
 };
