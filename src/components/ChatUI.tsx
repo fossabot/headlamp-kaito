@@ -212,13 +212,6 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
   const [availableMCPModels, setAvailableMCPModels] = useState<MCPModel[]>([]);
   const [selectedMCPModel, setSelectedMCPModel] = useState<MCPModel | null>(null);
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
 
   const handleInputChange = (e: React.FormEvent<HTMLDivElement>) => {
     const text = (e.target as HTMLElement).textContent || '';
