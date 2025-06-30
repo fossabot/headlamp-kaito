@@ -39,9 +39,9 @@ import {
   stopWorkspacePortForward,
   fetchModelsWithRetry,
   getClusterOrEmpty,
-} from './chatUtils';
+} from './resources/chatUtils';
 import { MCPServerConfig, MCPModel } from '../config/mcp';
-import { fetchModelsFromAllMCPServers } from './chatUtils';
+import { fetchModelsFromAllMCPServers } from './resources/chatUtils';
 import MCPServerManager from './MCPServerManager';
 
 interface Message {

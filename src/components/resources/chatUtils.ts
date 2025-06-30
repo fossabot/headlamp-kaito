@@ -4,7 +4,7 @@ import {
   stopOrDeletePortForward,
 } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import { getCluster } from '@kinvolk/headlamp-plugin/lib/Utils';
-import { MCPModel, loadMCPServers } from '../config/mcp';
+import { MCPModel, loadMCPServers } from '../../config/mcp';
 
 export async function resolvePodAndPort(namespace: string, workspaceName: string) {
   const labelSelector = `kaito.sh/workspace=${workspaceName}`;

@@ -10,7 +10,7 @@ import {
   stopWorkspacePortForward,
   fetchModelsWithRetry,
   fetchModelsFromAllMCPServers,
-} from './chatUtils';
+} from './resources/chatUtils';
 import { request } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import { MCPModel } from '../config/mcp';
 
