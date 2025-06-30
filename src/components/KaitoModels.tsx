@@ -20,6 +20,7 @@ import {
 } from '@mui/material';
 import { Autocomplete, Pagination } from '@mui/material';
 import { useState, useEffect } from 'react';
+// Importing logos
 import falconLogo from '../logos/falcon-logo.webp';
 import deepseekLogo from '../logos/deepseek-logo.webp';
 import llamaLogo from '../logos/llama-logo.webp';
@@ -55,12 +56,15 @@ interface PresetModel {
     name: string;
     url: string;
   };
-
+  verifiedPublisher: boolean;
+  official: boolean;
+  cncf: boolean;
   logoImageId: string;
   description: string;
   instanceType: string;
 }
 
+// Function to fetch and parse the YAML file from GitHub
 async function fetchSupportedModels(): Promise<SupportedModel[]> {
   try {
     const response = await fetch(
@@ -74,10 +78,12 @@ async function fetchSupportedModels(): Promise<SupportedModel[]> {
     return parsedYaml.models || [];
   } catch (error) {
     console.error('Failed to fetch supported models:', error);
+    // Return empty array if fetch fails
     return [];
   }
 }
 
+// Function to get appropriate logo for model
 const getLogo = (name: string): string => {
   const lname = name.toLowerCase();
   if (lname.includes('deepseek')) return deepseekLogo;
@@ -86,7 +92,7 @@ const getLogo = (name: string): string => {
   if (lname.includes('mistral')) return mistralLogo;
   if (lname.includes('phi')) return phiLogo;
   if (lname.includes('qwen')) return qwenLogo;
-  return huggingfaceLogo;
+  return huggingfaceLogo; // default logo for Hugging Face or others
 };
 
 function formatModelName(name: string): string {
@@ -174,7 +180,9 @@ function convertToPresetModels(supportedModels: SupportedModel[]): PresetModel[]
         name: getCompanyName(model.name),
         url: getHuggingFaceUrl(model.name),
       },
-
+      verifiedPublisher: true,
+      official: i % 3 === 0,
+      cncf: i % 4 === 0,
       logoImageId: getLogo(model.name),
       description: getModelDescription(model.name),
       instanceType: getInstanceType(model.name),
@@ -196,17 +204,14 @@ const getCompanyName = (name: string): string => {
       return companyMap[key];
     }
   }
-  return 'Hugging Face';
+  return 'Hugging Face'; // default for Hugging Face or others
 };
 
+// Will replace this with common filter categories
 const categories = [
   { title: 'All', value: 0 },
-  { title: 'Meta', value: 1 },
-  { title: 'Microsoft', value: 2 },
-  { title: 'Mistral AI', value: 3 },
-  { title: 'DeepSeek', value: 4 },
-  { title: 'TII', value: 5 },
-  { title: 'Qwen', value: 6 },
+  { title: 'option2', value: 1 },
+  { title: 'option3', value: 2 },
 ];
 
 const KaitoModels = () => {
@@ -250,34 +255,9 @@ const KaitoModels = () => {
   const [activeModel, setActiveModel] = useState<PresetModel | null>(null);
   const [editorValue, setEditorValue] = useState('');
 
-  const filteredModels = presetModels.filter(model => {
-    const matchesSearch = model.name.toLowerCase().includes(search.toLowerCase());
-    let matchesCategory = true;
-    if (category.value !== 0) {
-      switch (category.value) {
-        case 1:
-          matchesCategory = model.company.name.toLowerCase().includes('meta');
-          break;
-        case 2:
-          matchesCategory = model.company.name.toLowerCase().includes('microsoft');
-          break;
-        case 3:
-          matchesCategory = model.company.name.toLowerCase().includes('mistral');
-          break;
-        case 4:
-          matchesCategory = model.company.name.toLowerCase().includes('deepseek');
-          break;
-        case 5:
-          matchesCategory = model.company.name.toLowerCase().includes('tii');
-          break;
-        case 6:
-          matchesCategory = model.company.name.toLowerCase().includes('qwen');
-          break;
-      }
-    }
-
-    return matchesSearch && matchesCategory;
-  });
+  const filteredModels = presetModels.filter(c =>
+    c.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   const paginatedModels = filteredModels.slice(
     (page - 1) * PAGE_OFFSET_COUNT_FOR_MODELS,
@@ -285,26 +265,19 @@ const KaitoModels = () => {
   );
 
   function generateWorkspaceYAML(model: PresetModel): string {
-    const modelNameCheck = model.name.toLowerCase();
-    const isLlama = modelNameCheck.includes('llama');
     return `apiVersion: kaito.sh/v1beta1
 kind: Workspace
 metadata:
-  name: workspace-${modelNameCheck}
+  name: workspace-${model.name.toLowerCase()}
 resource:
   instanceType: ${model.instanceType}
   labelSelector: 
     matchLabels:
-      apps: ${modelNameCheck}
+      apps: ${model.name.toLowerCase()}
 inference:
     preset:
-      name: ${modelNameCheck}
-      ${
-        isLlama
-          ? `presetOptions:
-            modelAccessSecret: hf-token`
-          : ''
-      }`;
+      name: ${model.name.toLowerCase()}
+`;
   }
   return (
     <>
@@ -367,32 +340,6 @@ inference:
                       />
                     )}
                   </Box>
-                  <Box display="flex" alignItems="center">
-                    {model.cncf && (
-                      <Tooltip title="CNCF Project">
-                        <Icon
-                          icon="simple-icons:cncf"
-                          style={{ fontSize: 20, marginLeft: '0.5em' }}
-                        />
-                      </Tooltip>
-                    )}
-                    {model.official && (
-                      <Tooltip title="Official Model">
-                        <Icon
-                          icon="mdi:star-circle"
-                          style={{ fontSize: 22, marginLeft: '0.5em' }}
-                        />
-                      </Tooltip>
-                    )}
-                    {model.verifiedPublisher && (
-                      <Tooltip title="Verified Publisher">
-                        <Icon
-                          icon="mdi:check-decagram"
-                          style={{ fontSize: 22, marginLeft: '0.5em' }}
-                        />
-                      </Tooltip>
-                    )}
-                  </Box>
                 </Box>
 
                 <CardContent>
@@ -452,7 +399,9 @@ inference:
           )}
         </>
       )}
-      <Box textAlign="right" mt={2} mr={2}></Box>
+      <Box textAlign="right" mt={2} mr={2}>
+        {/* <Link href="https://artifacthub.io/" target="_blank"> */}
+      </Box>
       {editorDialogOpen && (
         <EditorDialog
           item={itemRef.current}
