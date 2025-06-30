@@ -852,8 +852,8 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             </Box>
           </Stack>{' '}
           <Stack direction="row" spacing={1}>
-            <Tooltip title="Manage MCP Servers">
-              <IconButton onClick={() => setMcpDialogOpen(true)} size="small">
+            <Tooltip title="Model Settings">
+              <IconButton onClick={() => setSettingsOpen(true)} size="small">
                 ⚙️
               </IconButton>
             </Tooltip>
