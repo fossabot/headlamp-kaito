@@ -1,10 +1,8 @@
-// Type to represent a user-added MCP server
 export interface MCPServerConfig {
   name: string;
   baseURL: string;
 }
 
-// Type to represent a single model returned by an MCP server
 export interface MCPModel {
   id: string;
   object: 'model';
