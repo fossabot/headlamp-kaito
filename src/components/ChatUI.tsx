@@ -271,8 +271,13 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
       if (!modelId) {
         throw new Error('No model selected.');
       }
+      let resolvedBaseURL = baseURL;
+      if (selectedMCPModel) {
+        resolvedBaseURL = selectedMCPModel.baseURL;
+        console.log(`Using MCP model: ${selectedMCPModel.id} with base URL: ${resolvedBaseURL}`);
+      }
       const openAICompatibleProvider = createOpenAICompatible({
-        baseURL,
+        baseURL: resolvedBaseURL,
         apiKey: '',
         name: 'openai-compatible',
       });
