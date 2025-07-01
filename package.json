@@ -1,7 +1,7 @@
 {
   "name": "headlamp-kaito",
   "version": "0.0.1",
-  "description": "Your Headlamp plugin",
+  "description": "Headlamp plugin for Kaito with AI chat and MCP server support (HTTP/SSE and STDIO)",
   "scripts": {
     "start": "headlamp-plugin start",
     "build": "headlamp-plugin build",
@@ -38,6 +38,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "^0.2.14",
+    "@modelcontextprotocol/sdk": "^1.0.0",
     "ai": "^4.3.16",
     "react-markdown": "^10.1.0"
   }

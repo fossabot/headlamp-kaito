@@ -98,9 +98,34 @@ export async function fetchModelsFromAllMCPServers(): Promise<MCPModel[]> {
   }
 
   for (const server of servers) {
+    // Handle different transport types
+    if (server.transportType === 'stdio') {
+      // For STDIO servers, we can't pre-fetch models in browser, they need to be discovered at runtime
+      // Add a placeholder model to indicate the server is available
+      allModels.push({
+        id: `${server.name}-placeholder`,
+        object: 'model',
+        serverName: server.name,
+        baseURL: `stdio://${server.command}`, // Special URL to indicate STDIO transport
+        created: Date.now(),
+        owned_by: server.name,
+      });
+      continue;
+    }
+
+    // Handle HTTP/SSE servers
     try {
-      const res = await fetch(`${server.baseURL}/v1/models`);
-      if (!res.ok) continue;
+      const baseURL = server.baseURL || server.url;
+      if (!baseURL) {
+        console.warn(`HTTP MCP server ${server.name} has no baseURL or url configured`);
+        continue;
+      }
+
+      const res = await fetch(`${baseURL}/v1/models`);
+      if (!res.ok) {
+        console.warn(`Failed to fetch models from ${server.name}: HTTP ${res.status}`);
+        continue;
+      }
       const json = await res.json();
       const models = json.data || [];
 
@@ -108,13 +133,39 @@ export async function fetchModelsFromAllMCPServers(): Promise<MCPModel[]> {
         allModels.push({
           ...model,
           serverName: server.name,
-          baseURL: server.baseURL,
+          baseURL: baseURL,
         });
       }
-    } catch {
+    } catch (error) {
+      console.warn(`Error fetching models from MCP server ${server.name}:`, error);
       continue;
     }
   }
 
   return allModels;
 }
+
+/**
+ * Check if an MCP model uses HTTP transport
+ */
+export function isMCPModelHTTPBased(model: MCPModel): boolean {
+  return !model.baseURL.startsWith('stdio://');
+}
+
+/**
+ * Filter MCP models to only include HTTP-based ones
+ */
+export function filterHTTPMCPModels(models: MCPModel[]): MCPModel[] {
+  return models.filter(isMCPModelHTTPBased);
+}
+
+/**
+ * Get models from STDIO servers
+ */
+export function getStdioMCPModels(models: MCPModel[]): MCPModel[] {
+  return models.filter(model => model.baseURL.startsWith('stdio://'));
+}
+
+// Legacy compatibility - keeping old function names
+export const isMCPModelBrowserCompatible = isMCPModelHTTPBased;
+export const filterBrowserCompatibleMCPModels = filterHTTPMCPModels;

@@ -43,6 +43,7 @@ import {
 import { MCPServerConfig, MCPModel } from '../config/mcp';
 import { fetchModelsFromAllMCPServers } from './resources/chatUtils';
 import MCPServerManager from './MCPServerManager';
+import SimpleMCPManager from './SimpleMCPManager';
 
 interface Message {
   id: string;
@@ -285,8 +286,49 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
       }
       let resolvedBaseURL = baseURL;
       if (selectedMCPModel) {
-        resolvedBaseURL = `${selectedMCPModel.baseURL}/v1`;
-        console.log(`Using MCP model: ${selectedMCPModel.id} with base URL: ${resolvedBaseURL}`);
+        // Handle STDIO MCP models
+        if (selectedMCPModel.baseURL.startsWith('stdio://')) {
+          // Use SimpleMCPManager for direct MCP SDK communication
+          const mcpManager = SimpleMCPManager.getInstance();
+          
+          // Extract server info from the STDIO URL
+          const stdioUrl = selectedMCPModel.baseURL; // e.g., "stdio://python stdio_mcp_server.py"
+          const command = stdioUrl.replace('stdio://', '').split(' ')[0];
+          const args = stdioUrl.replace('stdio://', '').split(' ').slice(1);
+          
+          console.log(`Using STDIO MCP model: ${selectedMCPModel.id} with command: ${command} ${args.join(' ')}`);
+          
+          // Ensure connection
+          const isConnected = await mcpManager.connectToServer(selectedMCPModel.serverName, command, args);
+          if (!isConnected) {
+            throw new Error('Failed to connect to STDIO MCP server');
+          }
+          
+          // Send message directly using MCP SDK
+          const response = await mcpManager.sendChatMessage(selectedMCPModel.serverName, userMessage.content);
+          
+          // Update the AI message with the response
+          setMessages(prev =>
+            prev.map(msg =>
+              msg.id === aiMessageId
+                ? {
+                    ...msg,
+                    content: response,
+                    isLoading: false,
+                  }
+                : msg
+            )
+          );
+          
+          setIsLoading(false);
+          return; // Exit early for STDIO models
+        } else {
+          // Regular HTTP/SSE MCP server
+          resolvedBaseURL = `${selectedMCPModel.baseURL}/v1`;
+          console.log(
+            `Using HTTP MCP model: ${selectedMCPModel.id} with base URL: ${resolvedBaseURL}`
+          );
+        }
       } else {
         console.log(`Using regular model with base URL: ${resolvedBaseURL}`);
       }
@@ -426,6 +468,17 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     }
   };
 
+  const stopSTDIOProxy = async () => {
+    try {
+      const mcpManager = SimpleMCPManager.getInstance();
+      await mcpManager.disconnectAll();
+      setPortForwardStatus('STDIO MCP connections closed');
+    } catch (error) {
+      console.error('Error closing STDIO MCP connections:', error);
+      setPortForwardStatus(`Error closing STDIO MCP connections: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
   const stopAIPortForward = () => {
     const idToStop = portForwardIdRef.current;
     if (!idToStop) {
@@ -500,7 +553,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     loadMCPModels();
   }, [mcpDialogOpen]);
 
-  const handleMCPModelSelect = (mcpModel: MCPModel) => {
+  const handleMCPModelSelect = async (mcpModel: MCPModel) => {
     console.log('MCP Model Selected:', mcpModel);
 
     if (portForwardIdRef.current) {
@@ -510,9 +563,22 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
 
     setSelectedMCPModel(mcpModel);
     setSelectedModel({ title: mcpModel.id, value: mcpModel.id });
-    setBaseURL(mcpModel.baseURL);
-    setIsPortReady(true);
-    console.log('MCP Model setup complete - isPortReady set to true');
+    
+    // Check if this is a STDIO model and prepare MCP connection
+    if (mcpModel.baseURL.startsWith('stdio://')) {
+      console.log('🔧 STDIO MCP model selected, preparing MCP SDK connection...');
+      setPortForwardStatus('STDIO MCP model ready');
+      
+      // For STDIO models, we don't need to set a baseURL since we communicate directly
+      // The actual connection will be established when sending messages
+      setIsPortReady(true);
+    } else {
+      // Regular HTTP MCP model
+      setBaseURL(mcpModel.baseURL);
+      setIsPortReady(true);
+    }
+    
+    console.log('MCP Model setup complete');
   };
 
   const renderChatContent = (
@@ -795,8 +861,11 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
               </IconButton>
             </Tooltip>
             <IconButton
-              onClick={() => {
+              onClick={async () => {
                 stopAIPortForward();
+                if (selectedMCPModel?.baseURL.startsWith('stdio://')) {
+                  await stopSTDIOProxy();
+                }
                 onClose?.();
               }}
               size="small"
@@ -861,37 +930,66 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
               </Typography>
               {availableMCPModels.length > 0 ? (
                 <Stack spacing={1}>
-                  {availableMCPModels.map((mcpModel, index) => (
-                    <Box
-                      key={`${mcpModel.serverName}-${mcpModel.id}-${index}`}
-                      sx={{
-                        p: 2,
-                        border: '1px solid rgba(0,0,0,0.1)',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        bgcolor:
-                          selectedMCPModel?.id === mcpModel.id
-                            ? 'rgba(59, 130, 246, 0.1)'
-                            : 'transparent',
-                        '&:hover': {
-                          bgcolor: 'rgba(59, 130, 246, 0.05)',
-                        },
-                      }}
-                      onClick={() => {
-                        console.log('MCP Model clicked:', mcpModel);
-                        handleMCPModelSelect(mcpModel);
-                        setMcpDialogOpen(false);
-                        console.log('Dialog closed, MCP model should be selected');
-                      }}
-                    >
-                      <Typography variant="subtitle1" fontWeight={600}>
-                        {mcpModel.id}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        Server: {mcpModel.serverName} | URL: {mcpModel.baseURL}
-                      </Typography>
-                    </Box>
-                  ))}
+                  {availableMCPModels.map((mcpModel, index) => {
+                    const isStdioModel = mcpModel.baseURL.startsWith('stdio://');
+                    return (
+                      <Box
+                        key={`${mcpModel.serverName}-${mcpModel.id}-${index}`}
+                        sx={{
+                          p: 2,
+                          border: isStdioModel
+                            ? '1px solid rgba(76, 175, 80, 0.5)'
+                            : '1px solid rgba(0,0,0,0.1)',
+                          borderRadius: '8px',
+                          cursor: 'pointer',
+                          bgcolor:
+                            selectedMCPModel?.id === mcpModel.id
+                              ? 'rgba(59, 130, 246, 0.1)'
+                              : isStdioModel
+                              ? 'rgba(76, 175, 80, 0.05)'
+                              : 'transparent',
+                          '&:hover': {
+                            bgcolor: isStdioModel
+                              ? 'rgba(76, 175, 80, 0.1)'
+                              : 'rgba(59, 130, 246, 0.05)',
+                          },
+                        }}
+                        onClick={() => {
+                          console.log('MCP Model clicked:', mcpModel);
+                          handleMCPModelSelect(mcpModel);
+                          setMcpDialogOpen(false);
+                          console.log('Dialog closed, MCP model should be selected');
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="subtitle1" fontWeight={600}>
+                            {mcpModel.id}
+                          </Typography>
+                          {isStdioModel && (
+                            <Chip
+                              label="STDIO"
+                              size="small"
+                              color="success"
+                              variant="outlined"
+                              sx={{ fontSize: '0.7rem', height: '20px' }}
+                            />
+                          )}
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Server: {mcpModel.serverName} | URL: {mcpModel.baseURL}
+                        </Typography>
+                        {isStdioModel && (
+                          <Typography
+                            variant="caption"
+                            color="success.main"
+                            sx={{ display: 'block', mt: 0.5 }}
+                          >
+                            ⚡ STDIO transport - running in plugin environment
+                          </Typography>
+                        )}
+                      </Box>
+                    );
+                  })}
                 </Stack>
               ) : (
                 <Typography color="text.secondary">
@@ -907,8 +1005,11 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   return (
     <ChatDialog
       open={open}
-      onClose={() => {
+      onClose={async () => {
         stopAIPortForward();
+        if (selectedMCPModel?.baseURL.startsWith('stdio://')) {
+          await stopSTDIOProxy();
+        }
         if (onClose) onClose();
       }}
       maxWidth={false}
@@ -987,8 +1088,11 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             </Tooltip>
             <Tooltip title="Close chat">
               <IconButton
-                onClick={() => {
+                onClick={async () => {
                   stopAIPortForward();
+                  if (selectedMCPModel?.baseURL.startsWith('stdio://')) {
+                    await stopSTDIOProxy();
+                  }
                   onClose?.();
                 }}
                 size="small"
@@ -1040,7 +1144,6 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
         )}
       </DialogContent>
 
-      {/* MCP Server Management Dialog */}
       <Dialog
         open={mcpDialogOpen}
         onClose={() => setMcpDialogOpen(false)}
@@ -1058,37 +1161,66 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             </Typography>
             {availableMCPModels.length > 0 ? (
               <Stack spacing={1}>
-                {availableMCPModels.map((mcpModel, index) => (
-                  <Box
-                    key={`${mcpModel.serverName}-${mcpModel.id}-${index}`}
-                    sx={{
-                      p: 2,
-                      border: '1px solid rgba(0,0,0,0.1)',
-                      borderRadius: '8px',
-                      cursor: 'pointer',
-                      bgcolor:
-                        selectedMCPModel?.id === mcpModel.id
-                          ? 'rgba(59, 130, 246, 0.1)'
-                          : 'transparent',
-                      '&:hover': {
-                        bgcolor: 'rgba(59, 130, 246, 0.05)',
-                      },
-                    }}
-                    onClick={() => {
-                      console.log('MCP Model clicked:', mcpModel);
-                      handleMCPModelSelect(mcpModel);
-                      setMcpDialogOpen(false);
-                      console.log('Dialog closed, MCP model should be selected');
-                    }}
-                  >
-                    <Typography variant="subtitle1" fontWeight={600}>
-                      {mcpModel.id}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Server: {mcpModel.serverName} | URL: {mcpModel.baseURL}
-                    </Typography>
-                  </Box>
-                ))}
+                {availableMCPModels.map((mcpModel, index) => {
+                  const isStdioModel = mcpModel.baseURL.startsWith('stdio://');
+                  return (
+                    <Box
+                      key={`${mcpModel.serverName}-${mcpModel.id}-${index}`}
+                      sx={{
+                        p: 2,
+                        border: isStdioModel
+                          ? '1px solid rgba(76, 175, 80, 0.5)'
+                          : '1px solid rgba(0,0,0,0.1)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        bgcolor:
+                          selectedMCPModel?.id === mcpModel.id
+                            ? 'rgba(59, 130, 246, 0.1)'
+                            : isStdioModel
+                            ? 'rgba(76, 175, 80, 0.05)'
+                            : 'transparent',
+                        '&:hover': {
+                          bgcolor: isStdioModel
+                            ? 'rgba(76, 175, 80, 0.1)'
+                            : 'rgba(59, 130, 246, 0.05)',
+                        },
+                      }}
+                      onClick={() => {
+                        console.log('MCP Model clicked:', mcpModel);
+                        handleMCPModelSelect(mcpModel);
+                        setMcpDialogOpen(false);
+                        console.log('Dialog closed, MCP model should be selected');
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="subtitle1" fontWeight={600}>
+                          {mcpModel.id}
+                        </Typography>
+                        {isStdioModel && (
+                          <Chip
+                            label="STDIO"
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                            sx={{ fontSize: '0.7rem', height: '20px' }}
+                          />
+                        )}
+                      </Box>
+                      <Typography variant="caption" color="text.secondary">
+                        Server: {mcpModel.serverName} | URL: {mcpModel.baseURL}
+                      </Typography>
+                      {isStdioModel && (
+                        <Typography
+                          variant="caption"
+                          color="success.main"
+                          sx={{ display: 'block', mt: 0.5 }}
+                        >
+                          ⚡ STDIO transport - running in plugin environment
+                        </Typography>
+                      )}
+                    </Box>
+                  );
+                })}
               </Stack>
             ) : (
               <Typography color="text.secondary">
