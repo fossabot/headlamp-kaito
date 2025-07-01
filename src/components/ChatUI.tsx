@@ -653,33 +653,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           justifyContent="space-between"
           alignItems="center"
         >
-          <Box
-            display="flex"
-            flexWrap="wrap"
-            gap={1}
-            alignItems="center"
-            color={theme.palette.primary.main}
-          >
-            <Tooltip title="MCP Server Settings">
-              <IconButton
-                onClick={() => setMcpDialogOpen(true)}
-                size="small"
-                sx={{
-                  color: theme.palette.primary.main,
-                  border: `1px solid ${theme.palette.divider}`,
-                  borderRadius: '16px',
-                  width: '32px',
-                  height: '24px',
-                  fontSize: '12px',
-                  '&:hover': {
-                    backgroundColor: theme.palette.action.hover,
-                    borderColor: theme.palette.primary.main,
-                  },
-                }}
-              >
-                🔗
-              </IconButton>
-            </Tooltip>
+          <Box display="flex" flexWrap="wrap" gap={1} color={theme.palette.primary.main}>
             <Chip
               label="What can you do?"
               size="small"
@@ -711,52 +685,42 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
               }}
             />
           </Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Tooltip title="Select a model">
-              <Autocomplete
-                options={models}
-                getOptionLabel={opt => opt.title}
-                value={selectedModel ?? null}
-                onChange={(e, val) => {
-                  if (val) {
-                    setSelectedModel(val);
-                  }
-                }}
-                sx={{
-                  width: '150px',
-                  '& .MuiInputBase-root': {
-                    height: '32px',
-                    color: theme.palette.primary.main,
-                    backgroundColor: theme.palette.background.default,
-                  },
-                  '& .MuiOutlinedInput-notchedOutline': {
-                    borderColor: theme.palette.divider,
-                  },
-                }}
-                renderInput={params => (
-                  <TextField
-                    {...params}
-                    label="Model"
-                    variant="outlined"
-                    sx={{
-                      '& .MuiInputLabel-root': {
-                        fontSize: '12px',
-                        color: theme.palette.primary.main,
-                      },
-                    }}
-                  />
-                )}
-              />
-            </Tooltip>
-            {selectedMCPModel && (
-              <Chip
-                label={`MCP: ${selectedMCPModel.serverName}`}
-                size="small"
-                color="primary"
-                sx={{ fontSize: '10px' }}
-              />
-            )}
-          </Stack>
+          <Tooltip title="Select a model">
+            <Autocomplete
+              options={models}
+              getOptionLabel={opt => opt.title}
+              value={selectedModel ?? null}
+              onChange={(e, val) => {
+                if (val) {
+                  setSelectedModel(val);
+                }
+              }}
+              sx={{
+                width: '150px',
+                '& .MuiInputBase-root': {
+                  height: '32px',
+                  color: theme.palette.primary.main,
+                  backgroundColor: theme.palette.background.default,
+                },
+                '& .MuiOutlinedInput-notchedOutline': {
+                  borderColor: theme.palette.divider,
+                },
+              }}
+              renderInput={params => (
+                <TextField
+                  {...params}
+                  label="Model"
+                  variant="outlined"
+                  sx={{
+                    '& .MuiInputLabel-root': {
+                      fontSize: '12px',
+                      color: theme.palette.primary.main,
+                    },
+                  }}
+                />
+              )}
+            />
+          </Tooltip>
         </Stack>
       </InputContainer>
     </>
@@ -787,6 +751,28 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           }}
         >
           <Stack direction="row" spacing={1}>
+            <Tooltip
+              title={
+                selectedMCPModel ? 'MCP Active - Click to manage' : 'MCP Off - Click to configure'
+              }
+            >
+              <Chip
+                label={selectedMCPModel ? 'MCP' : 'OFF'}
+                size="small"
+                variant={selectedMCPModel ? 'filled' : 'outlined'}
+                color={selectedMCPModel ? 'success' : 'default'}
+                onClick={() => setMcpDialogOpen(true)}
+                sx={{
+                  fontSize: '9px',
+                  height: '20px',
+                  minWidth: '40px',
+                  cursor: 'pointer',
+                  '&:hover': {
+                    backgroundColor: selectedMCPModel ? 'success.light' : 'grey.100',
+                  },
+                }}
+              />
+            </Tooltip>
             <Tooltip title="Model Settings">
               <IconButton
                 onClick={() => setSettingsOpen(true)}
@@ -857,6 +843,64 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           config={config}
           onSave={setConfig}
         />
+
+        <Dialog
+          open={mcpDialogOpen}
+          onClose={() => setMcpDialogOpen(false)}
+          maxWidth="md"
+          fullWidth
+          PaperProps={{
+            sx: { borderRadius: '16px' },
+          }}
+        >
+          <DialogContent sx={{ p: 0 }}>
+            <MCPServerManager />
+            <Box sx={{ p: 2, borderTop: '1px solid rgba(0,0,0,0.1)' }}>
+              <Typography variant="h6" sx={{ mb: 2 }}>
+                Available MCP Models
+              </Typography>
+              {availableMCPModels.length > 0 ? (
+                <Stack spacing={1}>
+                  {availableMCPModels.map((mcpModel, index) => (
+                    <Box
+                      key={`${mcpModel.serverName}-${mcpModel.id}-${index}`}
+                      sx={{
+                        p: 2,
+                        border: '1px solid rgba(0,0,0,0.1)',
+                        borderRadius: '8px',
+                        cursor: 'pointer',
+                        bgcolor:
+                          selectedMCPModel?.id === mcpModel.id
+                            ? 'rgba(59, 130, 246, 0.1)'
+                            : 'transparent',
+                        '&:hover': {
+                          bgcolor: 'rgba(59, 130, 246, 0.05)',
+                        },
+                      }}
+                      onClick={() => {
+                        console.log('MCP Model clicked:', mcpModel);
+                        handleMCPModelSelect(mcpModel);
+                        setMcpDialogOpen(false);
+                        console.log('Dialog closed, MCP model should be selected');
+                      }}
+                    >
+                      <Typography variant="subtitle1" fontWeight={600}>
+                        {mcpModel.id}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Server: {mcpModel.serverName} | URL: {mcpModel.baseURL}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Stack>
+              ) : (
+                <Typography color="text.secondary">
+                  No MCP models available. Add MCP servers above to see available models.
+                </Typography>
+              )}
+            </Box>
+          </DialogContent>
+        </Dialog>
       </Box>
     );
   }
@@ -910,6 +954,27 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             </Box>
           </Stack>{' '}
           <Stack direction="row" spacing={1}>
+            <Tooltip
+              title={
+                selectedMCPModel ? 'MCP Active - Click to manage' : 'MCP Off - Click to configure'
+              }
+            >
+              <Chip
+                label={selectedMCPModel ? 'MCP ON' : 'MCP OFF'}
+                size="small"
+                variant={selectedMCPModel ? 'filled' : 'outlined'}
+                color={selectedMCPModel ? 'success' : 'default'}
+                onClick={() => setMcpDialogOpen(true)}
+                sx={{
+                  fontSize: '10px',
+                  height: '24px',
+                  cursor: 'pointer',
+                  '&:hover': {
+                    backgroundColor: selectedMCPModel ? 'success.light' : 'grey.100',
+                  },
+                }}
+              />
+            </Tooltip>
             <Tooltip title="Model Settings">
               <IconButton onClick={() => setSettingsOpen(true)} size="small">
                 ⚙️
