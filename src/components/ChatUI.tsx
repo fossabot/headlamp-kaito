@@ -43,7 +43,7 @@ import {
 import { MCPServerConfig, MCPModel } from '../config/mcp';
 import { fetchModelsFromAllMCPServers } from './resources/chatUtils';
 import MCPServerManager from './MCPServerManager';
-import SimpleMCPManager from './SimpleMCPManager';
+import SimpleMCPManager from './STDIOProxyManager';
 
 interface Message {
   id: string;
@@ -290,23 +290,34 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
         if (selectedMCPModel.baseURL.startsWith('stdio://')) {
           // Use SimpleMCPManager for direct MCP SDK communication
           const mcpManager = SimpleMCPManager.getInstance();
-          
+
           // Extract server info from the STDIO URL
           const stdioUrl = selectedMCPModel.baseURL; // e.g., "stdio://python stdio_mcp_server.py"
           const command = stdioUrl.replace('stdio://', '').split(' ')[0];
           const args = stdioUrl.replace('stdio://', '').split(' ').slice(1);
-          
-          console.log(`Using STDIO MCP model: ${selectedMCPModel.id} with command: ${command} ${args.join(' ')}`);
-          
+
+          console.log(
+            `Using STDIO MCP model: ${selectedMCPModel.id} with command: ${command} ${args.join(
+              ' '
+            )}`
+          );
+
           // Ensure connection
-          const isConnected = await mcpManager.connectToServer(selectedMCPModel.serverName, command, args);
+          const isConnected = await mcpManager.connectToServer(
+            selectedMCPModel.serverName,
+            command,
+            args
+          );
           if (!isConnected) {
             throw new Error('Failed to connect to STDIO MCP server');
           }
-          
+
           // Send message directly using MCP SDK
-          const response = await mcpManager.sendChatMessage(selectedMCPModel.serverName, userMessage.content);
-          
+          const response = await mcpManager.sendChatMessage(
+            selectedMCPModel.serverName,
+            userMessage.content
+          );
+
           // Update the AI message with the response
           setMessages(prev =>
             prev.map(msg =>
@@ -319,7 +330,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
                 : msg
             )
           );
-          
+
           setIsLoading(false);
           return; // Exit early for STDIO models
         } else {
@@ -475,7 +486,11 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
       setPortForwardStatus('STDIO MCP connections closed');
     } catch (error) {
       console.error('Error closing STDIO MCP connections:', error);
-      setPortForwardStatus(`Error closing STDIO MCP connections: ${error instanceof Error ? error.message : String(error)}`);
+      setPortForwardStatus(
+        `Error closing STDIO MCP connections: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
     }
   };
 
@@ -563,12 +578,12 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
 
     setSelectedMCPModel(mcpModel);
     setSelectedModel({ title: mcpModel.id, value: mcpModel.id });
-    
+
     // Check if this is a STDIO model and prepare MCP connection
     if (mcpModel.baseURL.startsWith('stdio://')) {
       console.log('🔧 STDIO MCP model selected, preparing MCP SDK connection...');
       setPortForwardStatus('STDIO MCP model ready');
-      
+
       // For STDIO models, we don't need to set a baseURL since we communicate directly
       // The actual connection will be established when sending messages
       setIsPortReady(true);
@@ -577,7 +592,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
       setBaseURL(mcpModel.baseURL);
       setIsPortReady(true);
     }
-    
+
     console.log('MCP Model setup complete');
   };
 
