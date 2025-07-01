@@ -1,5 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Box, Typography, Autocomplete, TextField, Stack, Button } from '@mui/material';
+import {
+  Box,
+  Typography,
+  Autocomplete,
+  TextField,
+  Stack,
+  Button,
+  Chip,
+  Tooltip,
+} from '@mui/material';
 import { useLocation } from 'react-router-dom';
 import { useTheme } from '@mui/material/styles';
 import ChatUI from './ChatUI';
@@ -42,6 +51,7 @@ const KaitoChat: React.FC = () => {
   const [mcpModels, setMcpModels] = useState<MCPModel[]>([]);
   const [selectedMCPModel, setSelectedMCPModel] = useState<MCPModel | null>(null);
   const [showMCPManager, setShowMCPManager] = useState(false);
+  const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
 
   useEffect(() => {
     const fetchWorkspaces = async () => {
@@ -198,14 +208,7 @@ const KaitoChat: React.FC = () => {
             </Box>
           </Box>
         )}
-        <Autocomplete
-          options={mcpModels}
-          getOptionLabel={opt => `${opt.id} (${opt.serverName})`}
-          value={selectedMCPModel}
-          onChange={(_, val) => setSelectedMCPModel(val)}
-          sx={{ width: 300 }}
-          renderInput={params => <TextField {...params} label="MCP Model" />}
-        />
+
         <Button variant="outlined" onClick={() => setShowMCPManager(true)}>
           Manage MCP Servers
         </Button>
@@ -238,12 +241,77 @@ const KaitoChat: React.FC = () => {
                 setSelectedMCPModel(null);
                 setLocalPort(null);
                 setPortForwardId(null);
+                setMcpDialogOpen(false);
               }}
               theme={theme}
             />
           </Box>
         )}
       </Box>
+
+      {/* MCP Model Selection Dialog */}
+      {mcpDialogOpen && (
+        <Box
+          sx={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            bgcolor: 'rgba(0, 0, 0, 0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1300,
+          }}
+          onClick={() => setMcpDialogOpen(false)}
+        >
+          <Box
+            sx={{
+              bgcolor: 'background.paper',
+              borderRadius: 2,
+              p: 3,
+              maxWidth: 500,
+              width: '90%',
+              maxHeight: '70%',
+              overflow: 'auto',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <Typography variant="h6" sx={{ mb: 2 }}>
+              Select MCP Model
+            </Typography>
+            <Box sx={{ mb: 3 }}>
+              <Autocomplete
+                options={mcpModels}
+                getOptionLabel={opt => `${opt.id} (${opt.serverName})`}
+                value={selectedMCPModel}
+                onChange={(_, val) => {
+                  setSelectedMCPModel(val);
+                  setMcpDialogOpen(false);
+                }}
+                fullWidth
+                renderInput={params => <TextField {...params} label="MCP Model" />}
+                noOptionsText="No MCP models available"
+              />
+            </Box>
+            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+              {selectedMCPModel && (
+                <Button
+                  onClick={() => {
+                    setSelectedMCPModel(null);
+                    setMcpDialogOpen(false);
+                  }}
+                  color="secondary"
+                >
+                  Clear Selection
+                </Button>
+              )}
+              <Button onClick={() => setMcpDialogOpen(false)}>Cancel</Button>
+            </Box>
+          </Box>
+        </Box>
+      )}
 
       {/* MCP Server Manager Dialog */}
       {showMCPManager && (

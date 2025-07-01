@@ -757,7 +757,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
               }
             >
               <Chip
-                label={selectedMCPModel ? 'MCP' : 'OFF'}
+                label={selectedMCPModel ? 'MCP' : 'MCP OFF'}
                 size="small"
                 variant={selectedMCPModel ? 'filled' : 'outlined'}
                 color={selectedMCPModel ? 'success' : 'default'}
