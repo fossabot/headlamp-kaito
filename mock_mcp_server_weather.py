@@ -16,7 +16,7 @@ def models():
 def completions():
     data = request.json
     city = data['messages'][-1]['content']
-    print(f"📥 Received city: {city}")
+    print(f"Received city: {city}")
 
     try:
         geo_url = f"https://nominatim.openstreetmap.org/search?q={city}&format=json&limit=1"
@@ -28,9 +28,9 @@ def completions():
 
         lat = geo_data[0]['lat']
         lon = geo_data[0]['lon']
-        print(f"📍 Lat/Lon = {lat}, {lon}")
+        print(f"Lat/Lon = {lat}, {lon}")
     except Exception as e:
-        print("❌ Geocoding failed:", e)
+        print("Geocoding failed:", e)
         return wrap_reply(f"Sorry, I couldn't find the location '{city}'.")
 
     try:
@@ -40,7 +40,7 @@ def completions():
         forecast = forecast_data['properties']['periods'][0]['detailedForecast']
         reply = f"The forecast for {city} is: {forecast}"
     except Exception as e:
-        print("❌ Weather fetch failed:", e)
+        print("Weather fetch failed:", e)
         reply = f"Sorry, I couldn't fetch the weather forecast for '{city}'."
 
     return wrap_reply(reply)
