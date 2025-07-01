@@ -40,8 +40,8 @@ import {
   fetchModelsWithRetry,
   getClusterOrEmpty,
 } from './resources/chatUtils';
-import { MCPServerConfig, MCPModel } from '../config/mcp';
-import { fetchModelsFromAllMCPServers } from './resources/chatUtils';
+import { MCPServerConfig, MCPTool, MCPModel } from '../config/mcp';
+import { fetchToolsFromAllMCPServers, fetchModelsFromAllMCPServers } from './resources/chatUtils';
 import MCPServerManager from './MCPServerManager';
 
 interface Message {

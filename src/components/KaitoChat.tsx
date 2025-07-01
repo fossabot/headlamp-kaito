@@ -18,10 +18,10 @@ import {
   startWorkspacePortForward,
   stopWorkspacePortForward,
   fetchModelsWithRetry,
-  fetchModelsFromAllMCPServers,
+  fetchToolsFromAllMCPServers,
 } from './resources/chatUtils';
 import { request } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
-import { MCPModel } from '../config/mcp';
+import { MCPTool } from '../config/mcp';
 
 interface ModelOption {
   title: string;
@@ -48,8 +48,8 @@ const KaitoChat: React.FC = () => {
     namespace: string;
   } | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [mcpModels, setMcpModels] = useState<MCPModel[]>([]);
-  const [selectedMCPModel, setSelectedMCPModel] = useState<MCPModel | null>(null);
+  const [mcpTools, setMcpTools] = useState<MCPTool[]>([]);
+  const [selectedMCPTool, setSelectedMCPTool] = useState<MCPTool | null>(null);
   const [showMCPManager, setShowMCPManager] = useState(false);
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
 
@@ -77,17 +77,17 @@ const KaitoChat: React.FC = () => {
     fetchWorkspaces();
   }, []);
 
-  // load mcp models
+  // load mcp tools
   useEffect(() => {
-    const loadMCPModels = async () => {
+    const loadMCPTools = async () => {
       try {
-        const models = await fetchModelsFromAllMCPServers();
-        setMcpModels(models);
+        const tools = await fetchToolsFromAllMCPServers();
+        setMcpTools(tools);
       } catch (error) {
-        console.error('Failed to load MCP models:', error);
+        console.error('Failed to load MCP tools:', error);
       }
     };
-    loadMCPModels();
+    loadMCPTools();
   }, [showMCPManager]);
   const workspaceName = selectedWorkspace?.label;
   const namespace = selectedWorkspace?.namespace || 'default';
@@ -212,7 +212,7 @@ const KaitoChat: React.FC = () => {
         <Button variant="outlined" onClick={() => setShowMCPManager(true)}>
           Manage MCP Servers
         </Button>
-        {(selectedWorkspace && selectedModel) || selectedMCPModel ? (
+        {(selectedWorkspace && selectedModel) || selectedMCPTool ? (
           <Button variant="contained" color="primary" onClick={() => setDialogOpen(true)}>
             Go
           </Button>
@@ -220,7 +220,7 @@ const KaitoChat: React.FC = () => {
       </Stack>
 
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        {dialogOpen && ((selectedWorkspace && selectedModel) || selectedMCPModel) && (
+        {dialogOpen && ((selectedWorkspace && selectedModel) || selectedMCPTool) && (
           <Box
             sx={{
               flex: 1,
@@ -238,7 +238,7 @@ const KaitoChat: React.FC = () => {
                 setDialogOpen(false);
                 setSelectedWorkspace(null);
                 setSelectedModel(null);
-                setSelectedMCPModel(null);
+                setSelectedMCPTool(null);
                 setLocalPort(null);
                 setPortForwardId(null);
                 setMcpDialogOpen(false);
@@ -279,27 +279,27 @@ const KaitoChat: React.FC = () => {
             onClick={e => e.stopPropagation()}
           >
             <Typography variant="h6" sx={{ mb: 2 }}>
-              Select MCP Model
+              Select MCP Tool
             </Typography>
             <Box sx={{ mb: 3 }}>
               <Autocomplete
-                options={mcpModels}
-                getOptionLabel={opt => `${opt.id} (${opt.serverName})`}
-                value={selectedMCPModel}
+                options={mcpTools}
+                getOptionLabel={opt => `${opt.name} (${opt.serverName})`}
+                value={selectedMCPTool}
                 onChange={(_, val) => {
-                  setSelectedMCPModel(val);
+                  setSelectedMCPTool(val);
                   setMcpDialogOpen(false);
                 }}
                 fullWidth
-                renderInput={params => <TextField {...params} label="MCP Model" />}
-                noOptionsText="No MCP models available"
+                renderInput={params => <TextField {...params} label="MCP Tool" />}
+                noOptionsText="No MCP tools available"
               />
             </Box>
             <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-              {selectedMCPModel && (
+              {selectedMCPTool && (
                 <Button
                   onClick={() => {
-                    setSelectedMCPModel(null);
+                    setSelectedMCPTool(null);
                     setMcpDialogOpen(false);
                   }}
                   color="secondary"

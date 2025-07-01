@@ -7,7 +7,7 @@ const LOCAL_STORAGE_KEY = 'mcpServers';
 const MCPServerManager: React.FC = () => {
   const [servers, setServers] = useState<MCPServerConfig[]>([]);
   const [name, setName] = useState('');
-  const [baseURL, setBaseURL] = useState('');
+  const [url, setUrl] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -17,10 +17,9 @@ const MCPServerManager: React.FC = () => {
 
   const validateMCPServer = async (url: string): Promise<boolean> => {
     try {
-      const res = await fetch(`${url}/v1/models`);
-      if (!res.ok) return false;
-      const json = await res.json();
-      return Array.isArray(json?.data);
+      // For MCP servers, we can't validate with a simple HTTP call
+      // as they use SSE transport. Return true for now.
+      return true;
     } catch {
       return false;
     }
@@ -28,7 +27,7 @@ const MCPServerManager: React.FC = () => {
 
   const handleAdd = async () => {
     setError('');
-    const trimmedURL = baseURL.trim().replace(/\/+$/, '');
+    const trimmedURL = url.trim().replace(/\/+$/, '');
     if (!trimmedURL || !name) {
       setError('Name and URL required');
       return;
@@ -36,16 +35,16 @@ const MCPServerManager: React.FC = () => {
 
     const isValid = await validateMCPServer(trimmedURL);
     if (!isValid) {
-      setError('Invalid MCP server (no /v1/models found)');
+      setError('Invalid MCP server');
       return;
     }
 
-    const newServer = { name, baseURL: trimmedURL };
+    const newServer = { name, url: trimmedURL };
     const updated = [...servers, newServer];
     setServers(updated);
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
     setName('');
-    setBaseURL('');
+    setUrl('');
   };
 
   const handleRemove = (index: number) => {
@@ -73,18 +72,18 @@ const MCPServerManager: React.FC = () => {
           placeholder="e.g., My Local Server"
         />
         <TextField
-          label="Base URL"
-          value={baseURL}
-          onChange={e => setBaseURL(e.target.value)}
+          label="Server URL"
+          value={url}
+          onChange={e => setUrl(e.target.value)}
           fullWidth
-          placeholder="e.g., http://localhost:8080"
-          helperText="The base URL of your MCP server (without /v1/models)"
+          placeholder="e.g., http://localhost:8080/sse"
+          helperText="The SSE endpoint URL of your MCP server"
         />
         <Button
           variant="contained"
           onClick={handleAdd}
           sx={{ alignSelf: 'flex-start' }}
-          disabled={!name.trim() || !baseURL.trim()}
+          disabled={!name.trim() || !url.trim()}
         >
           Add Server
         </Button>
@@ -119,7 +118,7 @@ const MCPServerManager: React.FC = () => {
                     {server.name}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {server.baseURL}
+                    {server.url}
                   </Typography>
                 </Box>
                 <Button

@@ -4,7 +4,14 @@ import {
   stopOrDeletePortForward,
 } from '@kinvolk/headlamp-plugin/lib/ApiProxy';
 import { getCluster } from '@kinvolk/headlamp-plugin/lib/Utils';
-import { MCPModel, loadMCPServers } from '../../config/mcp';
+import {
+  MCPTool,
+  MCPModel,
+  initializeMCPClients,
+  getMCPTools,
+  getMCPModels,
+  loadMCPServers,
+} from '../../config/mcp';
 
 export async function resolvePodAndPort(namespace: string, workspaceName: string) {
   const labelSelector = `kaito.sh/workspace=${workspaceName}`;
@@ -89,32 +96,30 @@ export async function fetchModelsWithRetry(localPort: string, retries = 3, delay
   return [];
 }
 
+export async function fetchToolsFromAllMCPServers(): Promise<MCPTool[]> {
+  try {
+    // Initialize MCP clients first
+    await initializeMCPClients();
+
+    // Fetch tools from all connected servers
+    const tools = await getMCPTools();
+    return tools;
+  } catch (error) {
+    console.error('Failed to fetch MCP tools:', error);
+    return [];
+  }
+}
+
 export async function fetchModelsFromAllMCPServers(): Promise<MCPModel[]> {
-  const servers = loadMCPServers();
-  const allModels: MCPModel[] = [];
+  try {
+    // Initialize MCP clients first
+    await initializeMCPClients();
 
-  if (servers.length === 0) {
-    return allModels;
+    // Fetch models from all connected servers
+    const models = await getMCPModels();
+    return models;
+  } catch (error) {
+    console.error('Failed to fetch MCP models:', error);
+    return [];
   }
-
-  for (const server of servers) {
-    try {
-      const res = await fetch(`${server.baseURL}/v1/models`);
-      if (!res.ok) continue;
-      const json = await res.json();
-      const models = json.data || [];
-
-      for (const model of models) {
-        allModels.push({
-          ...model,
-          serverName: server.name,
-          baseURL: server.baseURL,
-        });
-      }
-    } catch {
-      continue;
-    }
-  }
-
-  return allModels;
 }
