@@ -407,7 +407,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           setSelectedModel(prev => prev ?? modelOptions[0]);
         }
         setIsPortReady(true);
-        console.log('✅ Port forwarding setup complete, models loaded');
+        console.log('Port forwarding setup complete, models loaded');
       } catch (err) {
         console.error('Error fetching models from /v1/models:', err);
         setPortForwardStatus(
@@ -501,10 +501,10 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   }, [mcpDialogOpen]);
 
   const handleMCPModelSelect = (mcpModel: MCPModel) => {
-    console.log('🎯 MCP Model Selected:', mcpModel);
+    console.log('MCP Model Selected:', mcpModel);
 
     if (portForwardIdRef.current) {
-      console.log('🛑 Stopping port forward for MCP model');
+      console.log('Stopping port forward for MCP model');
       stopAIPortForward();
     }
 
@@ -512,7 +512,7 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     setSelectedModel({ title: mcpModel.id, value: mcpModel.id });
     setBaseURL(mcpModel.baseURL);
     setIsPortReady(true);
-    console.log('✅ MCP Model setup complete - isPortReady set to true');
+    console.log('MCP Model setup complete - isPortReady set to true');
   };
 
   const renderChatContent = (
@@ -1010,10 +1010,10 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
                       },
                     }}
                     onClick={() => {
-                      console.log('🎯 MCP Model clicked:', mcpModel);
+                      console.log('MCP Model clicked:', mcpModel);
                       handleMCPModelSelect(mcpModel);
                       setMcpDialogOpen(false);
-                      console.log('🔒 Dialog closed, MCP model should be selected');
+                      console.log('Dialog closed, MCP model should be selected');
                     }}
                   >
                     <Typography variant="subtitle1" fontWeight={600}>
