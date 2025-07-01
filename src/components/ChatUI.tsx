@@ -1033,6 +1033,13 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           </Box>
         </DialogContent>
       </Dialog>
+
+      <ModelSettingsDialog
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        config={config}
+        onSave={setConfig}
+      />
     </ChatDialog>
   );
 };
