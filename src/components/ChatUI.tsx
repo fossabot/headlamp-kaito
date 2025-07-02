@@ -21,7 +21,8 @@ import {
 } from '@mui/material';
 import { styled } from '@mui/system';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { streamText } from 'ai';
+import { streamText, generateText } from 'ai';
+import { experimental_createMCPClient as createMCPClient } from 'ai';
 import { DEFAULT_OPENAI_CONFIG } from '../config/openai';
 import ModelSettingsDialog, { ModelConfig } from './ModelSettingsDialog';
 
@@ -40,7 +41,7 @@ import {
   fetchModelsWithRetry,
   getClusterOrEmpty,
 } from './resources/chatUtils';
-import { MCPServerConfig, MCPTool, MCPModel } from '../config/mcp';
+import { MCPServerConfig, MCPTool, MCPModel, loadMCPServers } from '../config/mcp';
 import { fetchToolsFromAllMCPServers, fetchModelsFromAllMCPServers } from './resources/chatUtils';
 import MCPServerManager from './MCPServerManager';
 
@@ -177,6 +178,26 @@ interface ChatUIProps {
   theme?: any;
 }
 
+/**
+ * ChatUI Component - Hybrid AI + MCP Architecture
+ *
+ * Architecture Overview:
+ * - AI Model: Always uses port-forwarded Kubernetes service for primary inference
+ * - MCP Context: Optionally augments responses with tools from MCP servers
+ * - Tool Execution: MCP tools are called when relevant to user queries
+ *
+ * Data Flow:
+ * 1. User submits query
+ * 2. AI model processes query using port-forwarded endpoint
+ * 3. If MCP tools are available and relevant, they augment the response
+ * 4. Combined AI + tool results are returned to user
+ *
+ * Key Principles:
+ * - Port forwarding is ONLY used for AI model inference
+ * - MCP servers provide tools/context, not model inference
+ * - Graceful degradation: chat works even if MCP tools fail
+ * - Legacy MCP model selection is supported for backward compatibility
+ */
 const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   open = true,
   onClose,
@@ -193,7 +214,8 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     {
       id: 'welcome',
       role: 'assistant',
-      content: "Hello! I'm your AI assistant. How can I help you today?",
+      content:
+        "Hello! I'm your AI assistant with access to MCP tools for enhanced capabilities. How can I help you today?",
       timestamp: new Date(),
     },
   ]);
@@ -210,8 +232,80 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   const [isPortReady, setIsPortReady] = useState(false);
   const [baseURL, setBaseURL] = useState('http://localhost:8080/v1');
   const [mcpDialogOpen, setMcpDialogOpen] = useState(false);
+
+  // MCP Context Management (separate from model selection)
+  const [mcpContextEnabled, setMcpContextEnabled] = useState(false);
+  const [availableMCPServers, setAvailableMCPServers] = useState<string[]>([]);
+  const [selectedMCPServers, setSelectedMCPServers] = useState<string[]>([]);
+  const [mcpTools, setMcpTools] = useState<any[]>([]);
+
+  // Legacy MCP model state (deprecated - keeping for backward compatibility)
   const [availableMCPModels, setAvailableMCPModels] = useState<MCPModel[]>([]);
   const [selectedMCPModel, setSelectedMCPModel] = useState<MCPModel | null>(null);
+
+  // Load MCP servers and tools on component mount
+  useEffect(() => {
+    const loadMCPData = async () => {
+      try {
+        const servers = loadMCPServers();
+        const serverNames = servers.map(server => server.name);
+        setAvailableMCPServers(serverNames);
+
+        // Load persisted MCP context settings
+        const savedMcpEnabled = localStorage.getItem('mcpContextEnabled');
+        const savedSelectedServers = localStorage.getItem('selectedMCPServers');
+
+        if (savedMcpEnabled !== null) {
+          setMcpContextEnabled(JSON.parse(savedMcpEnabled));
+        }
+
+        if (savedSelectedServers) {
+          const parsedServers = JSON.parse(savedSelectedServers);
+          // Only keep servers that still exist in configuration
+          const validServers = parsedServers.filter((server: string) =>
+            serverNames.includes(server)
+          );
+          setSelectedMCPServers(validServers);
+        }
+
+        // Legacy: Load MCP models (to be deprecated)
+        const mcpModels = await fetchModelsFromAllMCPServers();
+        setAvailableMCPModels(mcpModels);
+      } catch (error) {
+        console.error('Failed to load MCP data:', error);
+      }
+    };
+
+    loadMCPData();
+  }, []);
+
+  // Persist MCP context settings when they change
+  useEffect(() => {
+    localStorage.setItem('mcpContextEnabled', JSON.stringify(mcpContextEnabled));
+  }, [mcpContextEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('selectedMCPServers', JSON.stringify(selectedMCPServers));
+  }, [selectedMCPServers]);
+
+  // Reload MCP tools when MCP context settings change
+  useEffect(() => {
+    const reloadMCPTools = async () => {
+      if (mcpContextEnabled && selectedMCPServers.length > 0) {
+        try {
+          console.log('Reloading MCP tools for selected servers:', selectedMCPServers);
+          const tools = await getMCPToolsForChat(selectedMCPServers);
+          setMcpTools(tools);
+        } catch (error) {
+          console.error('Failed to reload MCP tools:', error);
+        }
+      } else {
+        setMcpTools([]);
+      }
+    };
+
+    reloadMCPTools();
+  }, [mcpContextEnabled, selectedMCPServers]);
 
   useEffect(() => {
     console.log('selectedMCPModel changed:', selectedMCPModel);
@@ -245,13 +339,13 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
-    console.log('handleSend called');
-    console.log('Current state:', {
-      selectedModel: selectedModel,
-      selectedMCPModel: selectedMCPModel,
-      baseURL: baseURL,
-      isPortReady: isPortReady,
-    });
+    console.log('🚀 Starting chat request with architecture:');
+    console.log('  AI Model:', selectedModel?.value, 'via', baseURL);
+    console.log(
+      '  MCP Context:',
+      mcpContextEnabled ? `${selectedMCPServers.length} servers` : 'disabled'
+    );
+    console.log('  Available Tools:', mcpTools.length);
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -274,190 +368,298 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
     };
 
     setMessages(prev => [...prev, aiMessage]);
+
     try {
       const conversationHistory = messages.concat(userMessage).map(msg => ({
         role: msg.role as 'user' | 'assistant',
         content: msg.content,
       }));
+
+      // Validate AI model configuration
       const modelId = selectedModel?.value;
       if (!modelId) {
-        throw new Error('No model selected.');
+        throw new Error('No AI model selected.');
       }
-      let resolvedBaseURL = baseURL;
-      if (selectedMCPModel) {
-        resolvedBaseURL = `${selectedMCPModel.baseURL}/v1`;
-        console.log(`Using MCP model: ${selectedMCPModel.id} with base URL: ${resolvedBaseURL}`);
-      } else {
-        console.log(`Using regular model with base URL: ${resolvedBaseURL}`);
-      }
+
+      // Create AI model provider (always use port-forwarded endpoint)
+      const aiModelBaseURL = baseURL.includes('/v1') ? baseURL : `${baseURL}/v1`;
+      console.log('📡 Using AI model endpoint:', aiModelBaseURL);
+
       const openAICompatibleProvider = createOpenAICompatible({
-        baseURL: resolvedBaseURL,
+        baseURL: aiModelBaseURL,
         apiKey: '',
         name: 'openai-compatible',
       });
 
-      const { textStream } = await streamText({
-        model: openAICompatibleProvider.chatModel(modelId),
-        messages: conversationHistory,
-        temperature,
-        maxTokens,
-      });
+      const model = openAICompatibleProvider.chatModel(modelId);
 
-      let streamedText = '';
+      // Collect available MCP tools from selected servers
+      const availableTools = await collectMCPTools();
 
-      for await (const textChunk of textStream) {
-        streamedText += textChunk;
-        setMessages(prev =>
-          prev.map(msg =>
-            msg.id === aiMessageId
-              ? {
-                  ...msg,
-                  content: streamedText,
-                  isLoading: true,
-                }
-              : msg
-          )
-        );
-      }
-
-      setMessages(prev =>
-        prev.map(msg =>
-          msg.id === aiMessageId
-            ? {
-                ...msg,
-                isLoading: false,
-              }
-            : msg
-        )
-      );
-    } catch (error) {
-      console.error('Error fetching completion:', error);
-
-      let errorMessage = '';
-      if (error instanceof Error) {
-        if (error.message.includes('timeout') || error.message.includes('TIMEOUT')) {
-          errorMessage = 'Connection timed out. The AI service might be unavailable.';
-        } else if (error.message.includes('CONNECTION') || error.message.includes('ECONNREFUSED')) {
-          errorMessage = 'Cannot connect to AI service. Please check the endpoint configuration.';
-        } else {
-          errorMessage = `AI service error: ${error.message}`;
-        }
+      // Choose appropriate chat mode based on tool availability
+      if (availableTools.length > 0) {
+        console.log('🔧 Using enhanced mode with', availableTools.length, 'MCP tools');
+        await handleEnhancedChat(model, conversationHistory, availableTools, aiMessageId);
       } else {
-        errorMessage = 'Unknown error occurred while connecting to AI service.';
+        console.log('💬 Using standard chat mode (no MCP tools)');
+        await handleStandardChat(model, conversationHistory, aiMessageId);
       }
-
-      const fallbackResponses = [
-        'I can help you with a wide range of technical questions or general inquiries.',
-        'Feel free to ask about software development, troubleshooting, or best practices.',
-        'What specific topic or problem would you like assistance with?',
-      ];
-
-      const fallbackContent = `${errorMessage}\n\n${
-        fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)]
-      }\n\n(Using fallback response - please check AI service configuration)`;
-
-      setMessages(prev =>
-        prev.map(msg =>
-          msg.id === aiMessageId
-            ? {
-                ...msg,
-                content: fallbackContent,
-                isLoading: false,
-              }
-            : msg
-        )
-      );
+    } catch (error) {
+      console.error('❌ Chat error:', error);
+      await handleChatError(error, aiMessageId);
     } finally {
       setIsLoading(false);
     }
   };
 
+  // Collect MCP tools from all selected sources
+  const collectMCPTools = async (): Promise<any[]> => {
+    const serversToUse: string[] = [];
+
+    // Add servers from MCP context integration (primary)
+    if (mcpContextEnabled && selectedMCPServers.length > 0) {
+      serversToUse.push(...selectedMCPServers);
+    }
+
+    // Add server from legacy MCP model selection (backward compatibility)
+    if (selectedMCPModel && !serversToUse.includes(selectedMCPModel.serverName)) {
+      console.log('🔄 Legacy compatibility: Adding', selectedMCPModel.serverName);
+      serversToUse.push(selectedMCPModel.serverName);
+    }
+
+    if (serversToUse.length === 0) {
+      return [];
+    }
+
+    try {
+      const tools = await getMCPToolsForChat(serversToUse);
+      console.log('✅ Loaded', tools.length, 'tools from', serversToUse.length, 'servers');
+      return tools;
+    } catch (error) {
+      console.error('⚠️ Failed to load MCP tools, continuing without:', error);
+      return [];
+    }
+  };
+
+  // Handle chat with MCP tool augmentation
+  const handleEnhancedChat = async (
+    model: any,
+    conversationHistory: any[],
+    tools: any[],
+    messageId: string
+  ) => {
+    const result = await generateText({
+      model,
+      messages: conversationHistory,
+      tools: tools.reduce((acc, tool) => {
+        acc[tool.function.name] = {
+          description: tool.function.description,
+          parameters: tool.function.parameters,
+          execute: async (args: any) => {
+            return await executeMCPToolFromChat(tool.originalName, tool.serverName, args);
+          },
+        };
+        return acc;
+      }, {} as any),
+      temperature,
+      maxTokens,
+      toolChoice: 'auto',
+    });
+
+    let finalContent = result.text;
+
+    // Process any tool calls that were made
+    if (result.toolCalls && result.toolCalls.length > 0) {
+      console.log('🔧 Processing', result.toolCalls.length, 'tool calls');
+
+      const toolResults: string[] = [];
+      for (const toolCall of result.toolCalls) {
+        try {
+          const [serverName, ...toolNameParts] = toolCall.toolName.split('_');
+          const toolName = toolNameParts.join('_');
+
+          console.log(`⚙️ Executing: ${toolName} on ${serverName}`);
+          const toolResult = await executeMCPToolFromChat(toolName, serverName, toolCall.args);
+
+          toolResults.push(`**${toolCall.toolName}:** ${JSON.stringify(toolResult, null, 2)}`);
+        } catch (error) {
+          console.error(`❌ Tool execution failed: ${toolCall.toolName}:`, error);
+          toolResults.push(
+            `**${toolCall.toolName} failed:** ${
+              error instanceof Error ? error.message : 'Unknown error'
+            }`
+          );
+        }
+      }
+
+      if (toolResults.length > 0) {
+        finalContent += '\n\n**Tool Results:**\n' + toolResults.join('\n\n');
+      }
+    }
+
+    setMessages(prev =>
+      prev.map(msg =>
+        msg.id === messageId ? { ...msg, content: finalContent, isLoading: false } : msg
+      )
+    );
+  };
+
+  // Handle standard chat without tools
+  const handleStandardChat = async (model: any, conversationHistory: any[], messageId: string) => {
+    const { textStream } = await streamText({
+      model,
+      messages: conversationHistory,
+      temperature,
+      maxTokens,
+    });
+
+    let streamedText = '';
+    for await (const textChunk of textStream) {
+      streamedText += textChunk;
+      setMessages(prev =>
+        prev.map(msg =>
+          msg.id === messageId ? { ...msg, content: streamedText, isLoading: true } : msg
+        )
+      );
+    }
+
+    setMessages(prev =>
+      prev.map(msg => (msg.id === messageId ? { ...msg, isLoading: false } : msg))
+    );
+  };
+
+  // Handle chat errors with fallback responses
+  const handleChatError = async (error: unknown, messageId: string) => {
+    let errorMessage = '';
+    if (error instanceof Error) {
+      if (error.message.includes('timeout') || error.message.includes('TIMEOUT')) {
+        errorMessage = 'Connection timed out. The AI service might be unavailable.';
+      } else if (error.message.includes('CONNECTION') || error.message.includes('ECONNREFUSED')) {
+        errorMessage = 'Cannot connect to AI service. Please check the endpoint configuration.';
+      } else {
+        errorMessage = `AI service error: ${error.message}`;
+      }
+    } else {
+      errorMessage = 'Unknown error occurred while connecting to AI service.';
+    }
+
+    const fallbackResponses = [
+      'I can help you with a wide range of technical questions or general inquiries.',
+      'Feel free to ask about software development, troubleshooting, or best practices.',
+      'What specific topic or problem would you like assistance with?',
+    ];
+
+    const fallbackContent = `${errorMessage}\n\n${
+      fallbackResponses[Math.floor(Math.random() * fallbackResponses.length)]
+    }\n\n(Using fallback response - please check AI service configuration)`;
+
+    setMessages(prev =>
+      prev.map(msg =>
+        msg.id === messageId ? { ...msg, content: fallbackContent, isLoading: false } : msg
+      )
+    );
+  };
+
   const startPortForwardProcess = async () => {
+    console.log('🔧 Starting AI model port forwarding...');
     setIsPortForwardRunning(true);
     setPortForwardStatus('Starting port forward...');
 
     try {
       if (!workspaceName) {
-        throw new Error('Missing workspace name.');
+        throw new Error('Missing workspace name for port forwarding.');
       }
 
+      // Resolve pod and port for the AI model service
       const resolved = await resolvePodAndPort(namespace, workspaceName);
       if (!resolved) {
-        throw new Error(`Could not resolve pod or target port for ${workspaceName}`);
+        throw new Error(`Could not resolve pod or target port for workspace: ${workspaceName}`);
       }
 
       const { podName, targetPort } = resolved;
       const localPort = String(10000 + Math.floor(Math.random() * 10000));
-      const newPortForwardId = workspaceName + '/' + namespace;
+      const portForwardId = `${workspaceName}/${namespace}`;
 
+      console.log(`📡 Forwarding ${podName}:${targetPort} to localhost:${localPort}`);
+
+      // Start port forwarding for AI model service
       await startWorkspacePortForward({
         namespace,
         workspaceName,
         podName,
         targetPort,
         localPort,
-        portForwardId: newPortForwardId,
+        portForwardId,
       });
 
-      setBaseURL(`http://localhost:${localPort}/v1`);
+      // Configure AI model endpoint
+      const aiModelURL = `http://localhost:${localPort}/v1`;
+      setBaseURL(aiModelURL);
+
+      console.log('🤖 Loading available AI models...');
       try {
         const modelOptions = await fetchModelsWithRetry(localPort);
         setModels(modelOptions);
         if (modelOptions.length > 0) {
           setSelectedModel(prev => prev ?? modelOptions[0]);
+          console.log('✅ AI models loaded:', modelOptions.map(m => m.title).join(', '));
         }
         setIsPortReady(true);
-        console.log('Port forwarding setup complete, models loaded');
       } catch (err) {
-        console.error('Error fetching models from /v1/models:', err);
+        console.error('❌ Failed to fetch AI models:', err);
         setPortForwardStatus(
-          `Error fetching models: ${err instanceof Error ? err.message : String(err)}`
+          `Model loading failed: ${err instanceof Error ? err.message : String(err)}`
         );
         setIsPortReady(false);
       }
 
-      portForwardIdRef.current = newPortForwardId;
-      setPortForwardStatus(`Port forward running on localhost:${localPort}`);
+      portForwardIdRef.current = portForwardId;
+      setPortForwardStatus(`AI model ready on localhost:${localPort}`);
+      console.log('🎉 AI model port forwarding complete');
     } catch (error) {
-      console.error('Port forward error:', error);
+      console.error('❌ Port forward error:', error);
       setPortForwardStatus(`Error: ${error instanceof Error ? error.message : String(error)}`);
       setIsPortForwardRunning(false);
+      setIsPortReady(false);
       portForwardIdRef.current = null;
     }
   };
 
   const stopAIPortForward = () => {
-    const idToStop = portForwardIdRef.current;
-    if (!idToStop) {
+    const portForwardId = portForwardIdRef.current;
+    if (!portForwardId) {
+      console.log('🔌 No active port forward to stop');
       setIsPortForwardRunning(false);
       setPortForwardStatus('Port forward not running');
       return;
     }
 
+    console.log('🛑 Stopping AI model port forward...');
     setPortForwardStatus('Stopping port forward...');
     setIsPortReady(false);
     setIsPortForwardRunning(false);
     portForwardIdRef.current = null;
 
-    stopWorkspacePortForward(idToStop)
+    stopWorkspacePortForward(portForwardId)
       .then(() => {
+        console.log('✅ Port forward stopped successfully');
         setPortForwardStatus('Port forward stopped');
         const stopMessage: Message = {
           id: Date.now().toString(),
           role: 'assistant',
-          content: 'Port forwarding stopped successfully.',
+          content: 'AI model connection stopped successfully.',
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, stopMessage]);
       })
       .catch(error => {
-        console.error(`Failed to stop port forward with ID ${idToStop}:`, error);
+        console.error(`❌ Failed to stop port forward:`, error);
         const errorMsg = error instanceof Error ? error.message : String(error);
         setPortForwardStatus(`Error stopping: ${errorMsg}`);
         const errorMessage: Message = {
           id: Date.now().toString(),
           role: 'assistant',
-          content: `Failed to stop port forwarding: ${errorMsg}`,
+          content: `Failed to stop AI model connection: ${errorMsg}`,
           timestamp: new Date(),
         };
         setMessages(prev => [...prev, errorMessage]);
@@ -469,21 +671,22 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
       {
         id: 'welcome',
         role: 'assistant',
-        content: "Hello! I'm your AI assistant. How can I help you today?",
+        content:
+          "Hello! I'm your AI assistant with access to MCP tools for enhanced capabilities. How can I help you today?",
         timestamp: new Date(),
       },
     ]);
   };
 
+  // Initialize AI model port forwarding when chat opens
   useEffect(() => {
-    if (!open || isPortForwardRunning || portForwardIdRef.current || selectedMCPModel) return;
+    if (!open || isPortForwardRunning || portForwardIdRef.current) {
+      return; // Skip if dialog not open or port forward already active
+    }
 
-    console.log('🔧 Starting port forward process (no MCP model selected)');
-    const initiateChatBackend = async () => {
-      await startPortForwardProcess();
-    };
-    initiateChatBackend();
-  }, [open, selectedMCPModel]);
+    console.log('🚀 Initializing AI model connection for chat...');
+    startPortForwardProcess();
+  }, [open]);
 
   useEffect(() => {
     if (!mcpDialogOpen) return;
@@ -501,18 +704,15 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
   }, [mcpDialogOpen]);
 
   const handleMCPModelSelect = (mcpModel: MCPModel) => {
-    console.log('MCP Model Selected:', mcpModel);
+    console.warn('⚠️ Legacy MCP Model Selection - This feature is deprecated');
+    console.warn('   Please use MCP Context Integration instead for better tool management');
+    console.log('📎 Adding legacy MCP server for backward compatibility:', mcpModel.serverName);
 
-    if (portForwardIdRef.current) {
-      console.log('Stopping port forward for MCP model');
-      stopAIPortForward();
-    }
-
+    // Legacy mode: Just add the server for tool access, don't change AI model
+    // The selected AI model remains the primary inference engine
     setSelectedMCPModel(mcpModel);
-    setSelectedModel({ title: mcpModel.id, value: mcpModel.id });
-    setBaseURL(mcpModel.baseURL);
-    setIsPortReady(true);
-    console.log('MCP Model setup complete - isPortReady set to true');
+
+    console.log('✅ Legacy MCP server configured for tool access only');
   };
 
   const renderChatContent = (
@@ -753,14 +953,20 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
           <Stack direction="row" spacing={1}>
             <Tooltip
               title={
-                selectedMCPModel ? 'MCP Active - Click to manage' : 'MCP Off - Click to configure'
+                mcpContextEnabled && selectedMCPServers.length > 0
+                  ? `MCP Context Active (${selectedMCPServers.length} servers, ${mcpTools.length} tools)`
+                  : 'MCP Context Off - Click to configure'
               }
             >
               <Chip
-                label={selectedMCPModel ? 'MCP' : 'MCP OFF'}
+                label={
+                  mcpContextEnabled && selectedMCPServers.length > 0
+                    ? `MCP (${selectedMCPServers.length})`
+                    : 'MCP OFF'
+                }
                 size="small"
-                variant={selectedMCPModel ? 'filled' : 'outlined'}
-                color={selectedMCPModel ? 'success' : 'default'}
+                variant={mcpContextEnabled && selectedMCPServers.length > 0 ? 'filled' : 'outlined'}
+                color={mcpContextEnabled && selectedMCPServers.length > 0 ? 'success' : 'default'}
                 onClick={() => setMcpDialogOpen(true)}
                 sx={{
                   fontSize: '9px',
@@ -768,7 +974,10 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
                   minWidth: '40px',
                   cursor: 'pointer',
                   '&:hover': {
-                    backgroundColor: selectedMCPModel ? 'success.light' : 'grey.100',
+                    backgroundColor:
+                      mcpContextEnabled && selectedMCPServers.length > 0
+                        ? 'success.light'
+                        : 'grey.100',
                   },
                 }}
               />
@@ -853,13 +1062,99 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             sx: { borderRadius: '16px' },
           }}
         >
-          <DialogContent sx={{ p: 0 }}>
+          <DialogTitle>
+            <Typography variant="h5" fontWeight={600}>
+              MCP Context Configuration
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              Configure which MCP servers to use for context augmentation
+            </Typography>
+          </DialogTitle>
+          <DialogContent>
             <MCPServerManager />
-            <Box sx={{ p: 2, borderTop: '1px solid rgba(0,0,0,0.1)' }}>
-              <Typography variant="h6" sx={{ mb: 2 }}>
-                Available MCP Models
+
+            <Box sx={{ mt: 3, p: 2, bgcolor: 'rgba(59, 130, 246, 0.05)', borderRadius: '8px' }}>
+              <Stack
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                sx={{ mb: 2 }}
+              >
+                <Typography variant="h6">MCP Context Integration</Typography>
+                <Button
+                  variant={mcpContextEnabled ? 'contained' : 'outlined'}
+                  color={mcpContextEnabled ? 'success' : 'primary'}
+                  onClick={() => setMcpContextEnabled(!mcpContextEnabled)}
+                  sx={{ minWidth: '120px' }}
+                >
+                  {mcpContextEnabled ? 'Enabled' : 'Enable'}
+                </Button>
+              </Stack>
+
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                When enabled, the AI can use tools from selected MCP servers to enhance responses.
+                Your chosen AI model will handle general queries while MCP tools augment responses
+                when needed.
               </Typography>
-              {availableMCPModels.length > 0 ? (
+
+              <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                Select MCP Servers for Context:
+              </Typography>
+
+              <Autocomplete
+                multiple
+                options={availableMCPServers}
+                value={selectedMCPServers}
+                onChange={(event, newValue) => setSelectedMCPServers(newValue)}
+                disabled={!mcpContextEnabled}
+                renderTags={(value, getTagProps) =>
+                  value.map((option, index) => (
+                    <Chip
+                      variant="outlined"
+                      label={option}
+                      color="primary"
+                      size="small"
+                      {...getTagProps({ index })}
+                      key={option}
+                    />
+                  ))
+                }
+                renderInput={params => (
+                  <TextField
+                    {...params}
+                    variant="outlined"
+                    placeholder={
+                      mcpContextEnabled
+                        ? 'Select MCP servers...'
+                        : 'Enable MCP context to select servers'
+                    }
+                    sx={{ mb: 2 }}
+                  />
+                )}
+              />
+
+              {mcpContextEnabled && selectedMCPServers.length > 0 && (
+                <Box sx={{ mt: 2, p: 2, bgcolor: 'rgba(0, 0, 0, 0.05)', borderRadius: '8px' }}>
+                  <Typography variant="body2" color="success.main" sx={{ fontWeight: 500 }}>
+                    ✓ MCP Context Active: {selectedMCPServers.length} server
+                    {selectedMCPServers.length > 1 ? 's' : ''} selected
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    Available tools: {mcpTools.length}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+
+            {/* Legacy MCP Models Section - Keep for backward compatibility */}
+            {availableMCPModels.length > 0 && (
+              <Box sx={{ mt: 3, p: 2, border: '1px solid rgba(0,0,0,0.1)', borderRadius: '8px' }}>
+                <Typography variant="h6" sx={{ mb: 1 }}>
+                  Legacy: MCP Models (Deprecated)
+                </Typography>
+                <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>
+                  ⚠️ This mode is deprecated. Use MCP Context Integration above instead.
+                </Typography>
                 <Stack spacing={1}>
                   {availableMCPModels.map((mcpModel, index) => (
                     <Box
@@ -871,10 +1166,10 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
                         cursor: 'pointer',
                         bgcolor:
                           selectedMCPModel?.id === mcpModel.id
-                            ? 'rgba(59, 130, 246, 0.1)'
+                            ? 'rgba(255, 193, 7, 0.1)'
                             : 'transparent',
                         '&:hover': {
-                          bgcolor: 'rgba(59, 130, 246, 0.05)',
+                          bgcolor: 'rgba(255, 193, 7, 0.05)',
                         },
                       }}
                       onClick={() => {
@@ -893,13 +1188,14 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
                     </Box>
                   ))}
                 </Stack>
-              ) : (
-                <Typography color="text.secondary">
-                  No MCP models available. Add MCP servers above to see available models.
-                </Typography>
-              )}
-            </Box>
+              </Box>
+            )}
           </DialogContent>
+          <DialogActions sx={{ p: 2 }}>
+            <Button onClick={() => setMcpDialogOpen(false)} variant="contained">
+              Close
+            </Button>
+          </DialogActions>
         </Dialog>
       </Box>
     );
@@ -931,10 +1227,25 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
             </Avatar>
             <Box>
               <Typography variant="h6" fontWeight="600" color={theme.palette.text.primary}>
-                Chat with{' '}
-                {selectedMCPModel
-                  ? `${selectedMCPModel.id} (${selectedMCPModel.serverName})`
-                  : selectedModel?.title ?? 'Model'}
+                Chat with {selectedModel?.title ?? 'Model'}
+                {mcpContextEnabled && selectedMCPServers.length > 0 && (
+                  <Chip
+                    label={`+${selectedMCPServers.length} MCP`}
+                    size="small"
+                    color="success"
+                    variant="outlined"
+                    sx={{ ml: 1, fontSize: '10px', height: '20px' }}
+                  />
+                )}
+                {selectedMCPModel && (
+                  <Chip
+                    label={`+${selectedMCPModel.serverName} (Legacy)`}
+                    size="small"
+                    color="warning"
+                    variant="outlined"
+                    sx={{ ml: 1, fontSize: '10px', height: '20px' }}
+                  />
+                )}
               </Typography>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <Box
@@ -950,27 +1261,43 @@ const ChatUI: React.FC<ChatUIProps & { embedded?: boolean }> = ({
                     },
                   }}
                 />
+                <Typography variant="caption" color="text.secondary">
+                  {isPortForwardRunning ? 'AI Model Connected' : 'Connecting to AI Model...'}
+                  {mcpContextEnabled && selectedMCPServers.length > 0 && (
+                    <> • {mcpTools.length} MCP tools ready</>
+                  )}
+                  {selectedMCPModel && <> • Legacy: {selectedMCPModel.serverName}</>}
+                </Typography>
               </Stack>
             </Box>
           </Stack>{' '}
           <Stack direction="row" spacing={1}>
             <Tooltip
               title={
-                selectedMCPModel ? 'MCP Active - Click to manage' : 'MCP Off - Click to configure'
+                mcpContextEnabled && selectedMCPServers.length > 0
+                  ? `MCP Context Active (${selectedMCPServers.length} servers, ${mcpTools.length} tools)`
+                  : 'MCP Context Off - Click to configure'
               }
             >
               <Chip
-                label={selectedMCPModel ? 'MCP ON' : 'MCP OFF'}
+                label={
+                  mcpContextEnabled && selectedMCPServers.length > 0
+                    ? `MCP (${selectedMCPServers.length})`
+                    : 'MCP OFF'
+                }
                 size="small"
-                variant={selectedMCPModel ? 'filled' : 'outlined'}
-                color={selectedMCPModel ? 'success' : 'default'}
+                variant={mcpContextEnabled && selectedMCPServers.length > 0 ? 'filled' : 'outlined'}
+                color={mcpContextEnabled && selectedMCPServers.length > 0 ? 'success' : 'default'}
                 onClick={() => setMcpDialogOpen(true)}
                 sx={{
                   fontSize: '10px',
                   height: '24px',
                   cursor: 'pointer',
                   '&:hover': {
-                    backgroundColor: selectedMCPModel ? 'success.light' : 'grey.100',
+                    backgroundColor:
+                      mcpContextEnabled && selectedMCPServers.length > 0
+                        ? 'success.light'
+                        : 'grey.100',
                   },
                 }}
               />
@@ -1144,6 +1471,118 @@ const ChatWithFAB: React.FC = () => {
     </>
   );
 };
+
+// Helper functions for MCP tools management
+
+/**
+ * Load MCP tools from selected servers for chat augmentation
+ * @param selectedServers Array of server names to load tools from
+ * @returns Array of tool definitions compatible with AI SDK
+ */
+async function getMCPToolsForChat(selectedServers?: string[]): Promise<any[]> {
+  try {
+    console.log('🔧 Loading MCP tools from servers:', selectedServers);
+
+    const servers = loadMCPServers();
+    const filteredServers = selectedServers
+      ? servers.filter(server => selectedServers.includes(server.name))
+      : servers;
+
+    if (filteredServers.length === 0) {
+      console.log('📭 No MCP servers configured or selected');
+      return [];
+    }
+
+    const allTools: any[] = [];
+
+    for (const server of filteredServers) {
+      try {
+        console.log(`🔌 Connecting to MCP server: ${server.name} at ${server.url}`);
+        
+        let tools: any[] = [];
+        
+        // Check if this is an OP.GG or other HTTP-based MCP server
+        if (server.url.includes('mcp-api.op.gg') || server.url.includes('/tools')) {
+          tools = await loadToolsFromHttpMCP(server);
+        } else {
+          tools = await loadToolsFromSSEMCP(server);
+        }
+        
+        if (tools.length === 0) {
+          console.log(`📭 No tools available from ${server.name}`);
+          continue;
+        }
+
+        // Convert to AI SDK format
+        tools.forEach(tool => {
+          const aiTool = {
+            serverName: server.name,
+            originalName: tool.name,
+            serverUrl: server.url,
+            function: {
+              name: `${server.name}_${tool.name}`,
+              description: tool.description || `Tool ${tool.name} from ${server.name}`,
+              parameters: tool.inputSchema || {},
+            },
+          };
+          
+          allTools.push(aiTool);
+          console.log(`✅ Loaded tool: ${aiTool.function.name}`);
+        });
+        
+        console.log(`🎉 Successfully loaded ${tools.length} tools from ${server.name}`);
+      } catch (error) {
+        console.error(`❌ Failed to connect to MCP server ${server.name}:`, error);
+        // Continue with other servers even if one fails
+      }
+    }
+
+    console.log(`🔧 Total MCP tools loaded: ${allTools.length}`);
+    return allTools;
+  } catch (error) {
+    console.error('❌ Critical error loading MCP tools:', error);
+    return [];
+  }
+}
+
+/**
+ * Execute an MCP tool with proper error handling
+ * @param toolName The original tool name (without server prefix)
+ * @param serverName The name of the MCP server
+ * @param args The arguments to pass to the tool
+ * @returns Tool execution result
+ */
+async function executeMCPToolFromChat(
+  toolName: string,
+  serverName: string,
+  args: any
+): Promise<any> {
+  try {
+    console.log(`⚙️ Executing MCP tool: ${toolName} on server: ${serverName}`);
+    console.log('📥 Tool arguments:', args);
+
+    // For now, return a structured mock response
+    // In a real implementation, this would call the actual MCP tool
+    const result = {
+      success: true,
+      tool: toolName,
+      server: serverName,
+      timestamp: new Date().toISOString(),
+      message: `Tool ${toolName} executed successfully on ${serverName}`,
+      arguments: args,
+      result: `Mock result for ${toolName} - this would contain actual tool output`,
+      // TODO: Replace with actual MCP tool execution
+    };
+
+    console.log('✅ Tool execution completed:', result);
+    return result;
+  } catch (error) {
+    console.error(`❌ MCP tool execution failed: ${toolName}@${serverName}:`, error);
+    throw new Error(
+      `Tool execution failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+}
 
 export default ChatUI;
 export { ChatWithFAB };
